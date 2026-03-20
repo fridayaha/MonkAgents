@@ -205,7 +205,12 @@ class App {
     const input = document.getElementById('message-input');
     const content = input.value.trim();
 
-    if (!content || !this.currentSession) {
+    if (!content) {
+      return;
+    }
+
+    if (!this.currentSession) {
+      alert('请先创建或选择一个会话');
       return;
     }
 

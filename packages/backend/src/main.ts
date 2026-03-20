@@ -1,7 +1,11 @@
 import 'reflect-metadata';
+import * as dotenv from 'dotenv';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger } from '@nestjs/common';
+
+// Load environment variables from .env file
+dotenv.config({ path: require('path').resolve(__dirname, '../../.env') });
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');

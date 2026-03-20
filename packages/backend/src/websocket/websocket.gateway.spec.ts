@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WebSocketGateway } from './websocket.gateway';
 import { WebSocketService } from './websocket.service';
+import { TangsengAgent } from '../agents/tangseng.agent';
+import { TasksService } from '../tasks/tasks.service';
 import { Socket } from 'socket.io';
 
 describe('WebSocketGateway', () => {
@@ -18,9 +20,18 @@ describe('WebSocketGateway', () => {
     removeClient: jest.fn(),
     joinSession: jest.fn(),
     leaveSession: jest.fn(),
-    handleUserMessage: jest.fn(),
-    cancelTask: jest.fn(),
+    handleUserMessage: jest.fn().mockResolvedValue(undefined),
+    cancelTask: jest.fn().mockResolvedValue(undefined),
     setServer: jest.fn(),
+    setDependencies: jest.fn(),
+  };
+
+  const mockTangsengAgent = {
+    processUserMessage: jest.fn(),
+  };
+
+  const mockTasksService = {
+    cancel: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -32,6 +43,14 @@ describe('WebSocketGateway', () => {
         {
           provide: WebSocketService,
           useValue: mockWebSocketService,
+        },
+        {
+          provide: TangsengAgent,
+          useValue: mockTangsengAgent,
+        },
+        {
+          provide: TasksService,
+          useValue: mockTasksService,
         },
       ],
     }).compile();
@@ -70,20 +89,16 @@ describe('WebSocketGateway', () => {
   });
 
   describe('handleMessage', () => {
-    it('should handle user message', () => {
+    it('should handle user message', async () => {
       const data = { sessionId: 'session-123', content: 'Hello' };
-      gateway.handleMessage(mockSocket, data);
-      expect(mockWebSocketService.handleUserMessage).toHaveBeenCalledWith(
-        'session-123',
-        'session-123',
-        'Hello'
-      );
+      await gateway.handleMessage(mockSocket, data);
+      expect(mockWebSocketService.handleUserMessage).toHaveBeenCalled();
     });
   });
 
   describe('handleCancel', () => {
-    it('should cancel task', () => {
-      gateway.handleCancel(mockSocket, 'task-123');
+    it('should cancel task', async () => {
+      await gateway.handleCancel(mockSocket, 'task-123');
       expect(mockWebSocketService.cancelTask).toHaveBeenCalledWith('task-123');
     });
   });

@@ -3,13 +3,18 @@ import { WukongAgent } from './wukong.agent';
 import { BajieAgent } from './bajie.agent';
 import { ShasengAgent } from './shaseng.agent';
 import { RulaiAgent } from './rulai.agent';
+import { TaskPlanner } from './task-planner';
 
 describe('Agent Implementations', () => {
   describe('TangsengAgent', () => {
     let agent: TangsengAgent;
+    let taskPlanner: TaskPlanner;
 
     beforeEach(() => {
       agent = new TangsengAgent();
+      taskPlanner = new TaskPlanner();
+      // Inject dependencies
+      agent.setDependencies(taskPlanner, null as any, null as any);
     });
 
     it('should have correct id', () => {
@@ -22,7 +27,7 @@ describe('Agent Implementations', () => {
 
     it('should analyze prompts', async () => {
       const result = await agent.analyze('test task');
-      expect(result).toContain('唐僧');
+      expect(result).toContain('步骤');
     });
 
     it('should execute tasks', async () => {
@@ -33,8 +38,8 @@ describe('Agent Implementations', () => {
 
     it('should create execution plan', async () => {
       const plan = await agent.createPlan('build a feature');
-      expect(plan.length).toBeGreaterThan(0);
-      expect(plan[0]).toContain('分析');
+      expect(plan.steps.length).toBeGreaterThan(0);
+      expect(plan.steps[0].description).toContain('分析');
     });
   });
 

@@ -4,12 +4,16 @@ import {
   SubscribeMessage,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { WebSocketService } from './websocket.service';
+import { TangsengAgent } from '../agents/tangseng.agent';
+import { TasksService } from '../tasks/tasks.service';
+import { TaskPlanner } from '../agents/task-planner';
 
 @WsGateway({
   cors: {
@@ -17,17 +21,45 @@ import { WebSocketService } from './websocket.service';
     methods: ['GET', 'POST'],
   },
 })
-export class WebSocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class WebSocketGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server: Server;
 
   private readonly logger = new Logger(WebSocketGateway.name);
 
-  constructor(private readonly webSocketService: WebSocketService) {}
+  constructor(
+    private readonly webSocketService: WebSocketService,
+    private readonly tangsengAgent: TangsengAgent,
+    private readonly tasksService: TasksService,
+    private readonly taskPlanner: TaskPlanner,
+  ) {}
+
+  afterInit(server: Server) {
+    this.webSocketService.setServer(server);
+    this.webSocketService.setDependencies(
+      this.tangsengAgent,
+      this.tasksService,
+    );
+    // Set dependencies for TangsengAgent
+    this.tangsengAgent.setDependencies(
+      this.taskPlanner,
+      this.tasksService,
+      this.webSocketService,
+    );
+    this.logger.log('WebSocket Gateway initialized');
+  }
 
   handleConnection(client: Socket): void {
     this.logger.log(`Client connected: ${client.id}`);
     this.webSocketService.addClient(client);
+
+    // Send welcome message
+    client.emit('connected', {
+      message: 'Connected to MonkAgents',
+      timestamp: new Date(),
+    });
   }
 
   handleDisconnect(client: Socket): void {
@@ -43,6 +75,13 @@ export class WebSocketGateway implements OnGatewayConnection, OnGatewayDisconnec
     this.logger.debug(`Client ${client.id} joining session: ${sessionId}`);
     client.join(`session:${sessionId}`);
     this.webSocketService.joinSession(client.id, sessionId);
+
+    // Confirm join
+    client.emit('joined', {
+      sessionId,
+      message: `Joined session: ${sessionId}`,
+      timestamp: new Date(),
+    });
   }
 
   @SubscribeMessage('leave')
@@ -56,20 +95,25 @@ export class WebSocketGateway implements OnGatewayConnection, OnGatewayDisconnec
   }
 
   @SubscribeMessage('message')
-  handleMessage(
+  async handleMessage(
     @ConnectedSocket() _client: Socket,
     @MessageBody() data: { sessionId: string; content: string },
-  ): void {
-    this.logger.debug(`Message in session ${data.sessionId}`);
-    this.webSocketService.handleUserMessage(data.sessionId, data.sessionId, data.content);
+  ): Promise<void> {
+    this.logger.debug(`Message in session ${data.sessionId}: ${data.content.substring(0, 50)}...`);
+    await this.webSocketService.handleUserMessage(_client.id, data.sessionId, data.content);
   }
 
   @SubscribeMessage('cancel')
-  handleCancel(
+  async handleCancel(
     @ConnectedSocket() _client: Socket,
     @MessageBody() taskId: string,
-  ): void {
+  ): Promise<void> {
     this.logger.debug(`Cancel request for task: ${taskId}`);
-    this.webSocketService.cancelTask(taskId);
+    await this.webSocketService.cancelTask(taskId);
+  }
+
+  @SubscribeMessage('ping')
+  handlePing(@ConnectedSocket() client: Socket): void {
+    client.emit('pong', { timestamp: new Date() });
   }
 }

@@ -46,14 +46,25 @@ export class ConfigService {
   }
 
   private async loadSystemConfig(): Promise<void> {
-    const configPath = join(process.cwd(), 'configs', 'system.yaml');
+    // Check multiple possible locations for config
+    const configPaths = [
+      join(process.cwd(), 'configs', 'system.yaml'),
+      join(process.cwd(), '..', '..', 'configs', 'system.yaml'),
+    ];
 
-    try {
-      await access(configPath);
-      const content = await readFile(configPath, 'utf-8');
-      this.systemConfig = parse(content) as SystemConfig;
-      this.logger.log('System configuration loaded');
-    } catch {
+    for (const configPath of configPaths) {
+      try {
+        await access(configPath);
+        const content = await readFile(configPath, 'utf-8');
+        this.systemConfig = parse(content) as SystemConfig;
+        this.logger.log(`System configuration loaded from: ${configPath}`);
+        break;
+      } catch {
+        // Try next path
+      }
+    }
+
+    if (!this.systemConfig) {
       this.logger.warn('System configuration not found, using defaults');
       this.systemConfig = this.getDefaultSystemConfig();
     }
@@ -68,7 +79,27 @@ export class ConfigService {
   }
 
   private async loadAgentConfigs(): Promise<void> {
-    const agentsPath = join(process.cwd(), 'configs', 'agents');
+    // Check multiple possible locations for agent configs
+    const agentsPaths = [
+      join(process.cwd(), 'configs', 'agents'),
+      join(process.cwd(), '..', '..', 'configs', 'agents'),
+    ];
+
+    let agentsPath: string | null = null;
+    for (const path of agentsPaths) {
+      try {
+        await access(path);
+        agentsPath = path;
+        break;
+      } catch {
+        // Try next path
+      }
+    }
+
+    if (!agentsPath) {
+      this.logger.warn('Agent configs directory not found');
+      return;
+    }
 
     const agentFiles = [
       'tangseng.yaml',
@@ -120,7 +151,18 @@ export class ConfigService {
   }
 
   getAgentConfig(agentId: string): AgentConfig | undefined {
-    return this.agentConfigs.get(agentId);
+    const config = this.agentConfigs.get(agentId);
+    if (!config) return undefined;
+
+    // Override model from environment if set
+    if (process.env.ANTHROPIC_MODEL) {
+      return {
+        ...config,
+        model: process.env.ANTHROPIC_MODEL,
+      };
+    }
+
+    return config;
   }
 
   getAllAgentConfigs(): AgentConfig[] {
