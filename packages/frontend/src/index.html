@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MonkAgents - 多智能体协作平台</title>
+  <link rel="stylesheet" href="/src/styles/main.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <h1 class="header-title">🧘 MonkAgents</h1>
+      <div class="header-status">
+        <span id="connection-status" class="status-indicator disconnected">已断开</span>
+      </div>
+    </header>
+
+    <!-- Main Content - Three Column Layout -->
+    <main class="main-content">
+      <!-- Left Sidebar - Sessions -->
+      <aside class="sidebar sessions-sidebar">
+        <div class="sidebar-header">
+          <h2>会话列表</h2>
+          <button id="new-session-btn" class="btn btn-primary">+ 新建会话</button>
+        </div>
+        <div id="sessions-list" class="sessions-list">
+          <!-- Sessions will be loaded here -->
+        </div>
+      </aside>
+
+      <!-- Center - Chat Area -->
+      <section class="chat-area">
+        <div class="chat-header">
+          <h2 id="current-session-title">选择一个会话开始</h2>
+          <span id="working-directory" class="working-dir"></span>
+        </div>
+        <div id="messages-container" class="messages-container">
+          <!-- Messages will be loaded here -->
+          <div class="welcome-message">
+            <p>👋 欢迎使用 MonkAgents</p>
+            <p>选择或创建一个会话开始与智能体协作</p>
+          </div>
+        </div>
+        <div class="input-area">
+          <textarea id="message-input" placeholder="输入你的问题或任务..." rows="3"></textarea>
+          <div class="input-actions">
+            <select id="agent-select" class="agent-select">
+              <option value="">自动分配</option>
+              <option value="tangseng">🙏 唐僧</option>
+              <option value="wukong">🐵 孙悟空</option>
+              <option value="bajie">🐷 猪八戒</option>
+              <option value="shaseng">🧑‍🦲 沙僧</option>
+              <option value="rulai">🧘 如来佛祖</option>
+            </select>
+            <button id="send-btn" class="btn btn-primary">发送</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Sidebar - Agents -->
+      <aside class="sidebar agents-sidebar">
+        <div class="sidebar-header">
+          <h2>智能体</h2>
+        </div>
+        <div id="agents-list" class="agents-list">
+          <!-- Agents will be loaded here -->
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- New Session Modal -->
+  <div id="new-session-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>新建会话</h3>
+      <div class="form-group">
+        <label for="session-title">会话标题 (可选)</label>
+        <input type="text" id="session-title" placeholder="输入会话标题">
+      </div>
+      <div class="form-group">
+        <label for="working-dir-input">工作目录</label>
+        <input type="text" id="working-dir-input" placeholder="输入工作目录路径" value=".">
+      </div>
+      <div class="modal-actions">
+        <button id="cancel-modal-btn" class="btn btn-secondary">取消</button>
+        <button id="create-session-btn" class="btn btn-primary">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/src/scripts/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "bypassPermissions": true,
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "WebFetch(domain:docs.langchain.com)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cd:*)"
+    ]
+  }
+}
