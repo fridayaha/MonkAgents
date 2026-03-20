@@ -42,7 +42,7 @@ const DEFAULT_CONFIG = {
 
 /**
  * Base class for executable agents that can run CLI commands
- * Implements robust lifecycle management based on minimal-claude.js patterns
+ * All behavior is driven by configuration - no hardcoded task matching
  */
 export abstract class ExecutableAgentBase {
   protected readonly logger: Logger;
@@ -94,22 +94,91 @@ export abstract class ExecutableAgentBase {
 
   /**
    * Check if agent can handle the given task
+   * Uses taskKeywords from configuration
    */
-  abstract canHandle(task: string): boolean;
+  canHandle(task: string): boolean {
+    const keywords = this.config.taskKeywords;
+    if (!keywords) {
+      // Fallback: check capabilities
+      return this.config.capabilities.length > 0;
+    }
+
+    const taskLower = task.toLowerCase();
+    const allKeywords = [
+      ...(keywords.high || []),
+      ...(keywords.medium || []),
+      ...(keywords.low || []),
+      ...(keywords.general || []),
+    ];
+
+    return allKeywords.some(kw => taskLower.includes(kw.toLowerCase()));
+  }
 
   /**
-   * Get task priority weight (higher = more suitable)
-   * Override in subclasses for specific task matching
+   * Get task priority weight based on configuration
+   * Higher = more suitable for this agent
    */
-  getPriorityWeight(_task: string): number {
-    return 0.5; // Default weight
+  getPriorityWeight(task: string): number {
+    const keywords = this.config.taskKeywords;
+    if (!keywords) {
+      return 0.5; // Default weight
+    }
+
+    const taskLower = task.toLowerCase();
+
+    // Check high priority keywords
+    if (keywords.high?.some(kw => taskLower.includes(kw.toLowerCase()))) {
+      return 0.95;
+    }
+
+    // Check medium priority keywords
+    if (keywords.medium?.some(kw => taskLower.includes(kw.toLowerCase()))) {
+      return 0.85;
+    }
+
+    // Check low priority keywords
+    if (keywords.low?.some(kw => taskLower.includes(kw.toLowerCase()))) {
+      return 0.75;
+    }
+
+    // Check general keywords
+    if (keywords.general?.some(kw => taskLower.includes(kw.toLowerCase()))) {
+      return 0.65;
+    }
+
+    // Default weight for this agent
+    return this.getDefaultWeight();
+  }
+
+  /**
+   * Get default weight when no keywords match
+   * Override in subclasses for specific behavior
+   */
+  protected getDefaultWeight(): number {
+    // Different default weights based on role
+    const roleWeights: Record<string, number> = {
+      executor: 0.5,
+      assistant: 0.4,
+      inspector: 0.3,
+      advisor: 0.2,
+      master: 0.1,
+    };
+    return roleWeights[this.config.role] || 0.3;
   }
 
   /**
    * Get the system prompt for this agent
+   * Combines persona with execution prompt configuration
    */
   protected getSystemPrompt(): string {
-    return this.config.persona;
+    let prompt = this.config.persona;
+
+    // Add additional instructions if configured
+    if (this.config.executionPrompt?.additionalInstructions) {
+      prompt += `\n\n重要提示：\n${this.config.executionPrompt.additionalInstructions}`;
+    }
+
+    return prompt;
   }
 
   /**
@@ -122,7 +191,20 @@ export abstract class ExecutableAgentBase {
       parts.push(`\n当前工作目录: ${context.workingDirectory}`);
     }
 
-    parts.push(`\n请执行以下任务:\n${task}`);
+    // Use task template if configured
+    if (this.config.executionPrompt?.taskTemplate) {
+      parts.push(`\n${this.config.executionPrompt.taskTemplate.replace('{task}', task)}`);
+    } else {
+      parts.push(`\n请执行以下任务:\n${task}`);
+    }
+
+    // Add checklist if configured
+    if (this.config.executionPrompt?.checklist && this.config.executionPrompt.checklist.length > 0) {
+      parts.push('\n\n注意事项：');
+      this.config.executionPrompt.checklist.forEach((item, i) => {
+        parts.push(`${i + 1}. ${item}`);
+      });
+    }
 
     return parts.join('\n');
   }
@@ -153,24 +235,25 @@ export abstract class ExecutableAgentBase {
 
       this.logger.debug(`Starting CLI: ${command} ${args.join(' ')}`);
 
+      // Prepare environment - remove CLAUDECODE vars to allow nested execution
+      const env = { ...process.env };
+      Object.keys(env).forEach(key => {
+        if (key.startsWith('CLAUDECODE') || key.startsWith('CLAUDE_CODE')) {
+          delete env[key];
+        }
+      });
+
       this.currentProcess = spawn(command, [...args, fullPrompt], {
         cwd: workingDirectory || process.cwd(),
-        shell: true,
+        env,
         stdio: ['inherit', 'pipe', 'pipe'],  // inherit stdin, pipe stdout/stderr
-        env: {
-          ...process.env,
-          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-          ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN || '',
-          ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || '',
-          ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL || '',
-        },
       });
 
       let output = '';
       let error = '';
       let sessionIdFromCli: string | undefined;
 
-      // Handle stdout - updates activity
+      // Handle stdout - updates activity and parses events
       this.currentProcess.stdout?.on('data', (data: Buffer) => {
         this.updateActivity();
         const chunk = data.toString();
@@ -391,7 +474,6 @@ export abstract class ExecutableAgentBase {
   cancel(): void {
     if (this.currentProcess && this.status === 'executing') {
       this.logger.log('Cancelling execution');
-      // Use graceful shutdown
       this.isShuttingDown = true;
       this.stopActivityCheck();
 

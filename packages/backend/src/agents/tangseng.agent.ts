@@ -1,32 +1,26 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { AgentBase, AgentExecutionResult } from './agent-base';
-import { AgentConfig } from '@monkagents/shared';
+import { ExecutableAgentBase, AgentExecutionContext } from './executable-agent-base';
+import { AgentConfig, CliExecutionResult } from '@monkagents/shared';
+import { ConfigService } from '../config/config.service';
 import { TaskPlanner, DecompositionResult } from './task-planner';
 import { TasksService } from '../tasks/tasks.service';
 import { WebSocketService } from '../websocket/websocket.service';
 import { Task } from '../database/entities/task.entity';
-import { ConfigService } from '../config/config.service';
 
 /**
- * Tangseng (Master) Agent - Team Leader
- *
- * Responsibilities:
- * - Analyze user requirements
- * - Create execution plans
- * - Coordinate team members
- * - Review and summarize results
+ * 唐僧智能体 - 团队领导者
+ * 负责：任务规划、团队协调、结果审核
+ * 所有行为由配置文件驱动，但保留协调逻辑
  */
 @Injectable()
-export class TangsengAgent extends AgentBase implements OnModuleInit {
-  private configService: ConfigService;
+export class TangsengAgent extends ExecutableAgentBase implements OnModuleInit {
   private taskPlanner: TaskPlanner | null = null;
   private tasksService: TasksService | null = null;
-  private wsService: WebSocketService | null = null;
-  private agentsService: any = null; // Will be set via setDependencies
+  // wsService is inherited from ExecutableAgentBase (protected)
+  private agentsService: any = null;
 
-  constructor(configService: ConfigService) {
+  constructor(private readonly configService: ConfigService) {
     super({} as AgentConfig);
-    this.configService = configService;
   }
 
   onModuleInit() {
@@ -48,70 +42,12 @@ export class TangsengAgent extends AgentBase implements OnModuleInit {
   ): void {
     this.taskPlanner = taskPlanner;
     this.tasksService = tasksService;
-    this.wsService = wsService;
+    this.wsService = wsService;  // Uses inherited protected wsService
     this.agentsService = agentsService;
   }
 
   /**
-   * Analyze user prompt and create execution plan
-   */
-  override async analyze(prompt: string): Promise<string> {
-    this.logger.debug(`分析任务: ${prompt}`);
-    this.status = 'thinking';
-
-    if (!this.taskPlanner) {
-      this.status = 'idle';
-      return '任务规划器未初始化';
-    }
-
-    try {
-      // Decompose the task
-      const decomposition = await this.taskPlanner.decompose(prompt);
-
-      this.status = 'idle';
-      return decomposition.summary;
-    } catch (error) {
-      this.status = 'idle';
-      this.logger.error(`分析失败: ${error}`);
-      return `分析失败: ${error}`;
-    }
-  }
-
-  /**
-   * Execute task coordination
-   */
-  override async execute(task: string): Promise<AgentExecutionResult> {
-    this.logger.debug(`执行任务协调: ${task}`);
-
-    return {
-      success: true,
-      output: `[唐僧] 任务协调完成`,
-    };
-  }
-
-  /**
-   * Create execution plan from user prompt
-   */
-  async createPlan(userPrompt: string): Promise<DecompositionResult> {
-    this.status = 'thinking';
-
-    if (!this.taskPlanner) {
-      this.status = 'idle';
-      throw new Error('Task planner not initialized');
-    }
-
-    try {
-      const decomposition = await this.taskPlanner.decompose(userPrompt);
-      this.status = 'idle';
-      return decomposition;
-    } catch (error) {
-      this.status = 'idle';
-      throw error;
-    }
-  }
-
-  /**
-   * Process a user message and coordinate task execution
+   * Process a user message - main coordination method
    */
   async processUserMessage(
     sessionId: string,
@@ -183,7 +119,7 @@ export class TangsengAgent extends AgentBase implements OnModuleInit {
         message: '任务已完成',
       });
 
-      // Broadcast chat complete to clear loading
+      // Broadcast chat complete
       this.wsService!.broadcastMessage(sessionId, {
         id: `chat-complete-${Date.now()}`,
         sessionId,
@@ -205,6 +141,27 @@ export class TangsengAgent extends AgentBase implements OnModuleInit {
   }
 
   /**
+   * Create execution plan from user prompt
+   */
+  async createPlan(userPrompt: string): Promise<DecompositionResult> {
+    this.status = 'thinking';
+
+    if (!this.taskPlanner) {
+      this.status = 'idle';
+      throw new Error('Task planner not initialized');
+    }
+
+    try {
+      const decomposition = await this.taskPlanner.decompose(userPrompt);
+      this.status = 'idle';
+      return decomposition;
+    } catch (error) {
+      this.status = 'idle';
+      throw error;
+    }
+  }
+
+  /**
    * Execute subtasks by delegating to appropriate agents
    */
   private async executeSubtasks(
@@ -221,13 +178,12 @@ export class TangsengAgent extends AgentBase implements OnModuleInit {
       const agentId = step.agentId;
       const agentName = this.getAgentNameById(agentId);
 
-      // Skip if this is tangseng (master) - we don't execute CLI
+      // Skip tangseng - coordinator doesn't execute CLI
       if (agentId === 'tangseng') {
         this.logger.debug(`跳过唐僧自己的子任务: ${step.description}`);
         continue;
       }
 
-      // Get the executable agent
       const agent = this.agentsService.getExecutableAgent(agentId);
 
       if (!agent) {
@@ -255,8 +211,7 @@ export class TangsengAgent extends AgentBase implements OnModuleInit {
       );
 
       try {
-        // Execute through the agent
-        const context = {
+        const context: AgentExecutionContext = {
           sessionId,
           taskId,
           subtaskId: `subtask-${step.order}`,
@@ -264,7 +219,7 @@ export class TangsengAgent extends AgentBase implements OnModuleInit {
           prompt: step.description,
         };
 
-        const result = await agent.execute(context, {
+        await agent.execute(context, {
           onText: (_sessionId: string, text: string) => {
             this.wsService!.emitToSession(sessionId, 'message', {
               id: `msg-${Date.now()}`,
@@ -313,7 +268,7 @@ export class TangsengAgent extends AgentBase implements OnModuleInit {
           },
         });
 
-        this.logger.debug(`Agent ${agentId} completed: ${result.success}`);
+        this.logger.debug(`Agent ${agentId} completed`);
 
       } catch (error) {
         this.logger.error(`Agent ${agentId} execution failed: ${error}`);
@@ -382,53 +337,34 @@ export class TangsengAgent extends AgentBase implements OnModuleInit {
   }
 
   /**
-   * Summarize task execution results
+   * Execute task via CLI for direct interaction
    */
-  async summarizeResults(taskId: string): Promise<string> {
-    this.status = 'thinking';
+  async executeTask(
+    context: AgentExecutionContext,
+    callbacks?: {
+      onText?: (text: string) => void;
+      onToolUse?: (name: string, input: Record<string, unknown>) => void;
+      onComplete?: (result: CliExecutionResult) => void;
+      onError?: (error: string) => void;
+    },
+  ): Promise<CliExecutionResult> {
+    this.logger.log(`唐僧开始处理: ${context.prompt.substring(0, 50)}...`);
 
-    try {
-      const task = await this.tasksService!.findOne(taskId);
-      const subtasks = await this.tasksService!.getSubtasks(taskId);
-
-      const completedCount = subtasks.filter(s => s.status === 'completed').length;
-      const failedCount = subtasks.filter(s => s.status === 'failed').length;
-
-      const lines = [
-        '📊 **任务执行总结**\n',
-        `任务: ${task.userPrompt}`,
-        `状态: ${task.status}`,
-        `完成: ${completedCount}/${subtasks.length} 步骤`,
-      ];
-
-      if (failedCount > 0) {
-        lines.push(`失败: ${failedCount} 步骤`);
-      }
-
-      if (task.result) {
-        lines.push(`\n**结果**: ${task.result}`);
-      }
-
-      if (task.error) {
-        lines.push(`\n**错误**: ${task.error}`);
-      }
-
-      this.status = 'idle';
-      return lines.join('\n');
-    } catch (error) {
-      this.status = 'idle';
-      this.logger.error(`总结失败: ${error}`);
-      return `生成总结失败: ${error}`;
-    }
-  }
-
-  /**
-   * Check if agent can handle the task
-   */
-  canHandle(prompt: string): boolean {
-    // Tangseng handles all coordination tasks
-    // Check for keywords that indicate planning needs
-    const planningKeywords = ['帮我', '请', '帮我', '需要', '想要', '分析', '计划', 'help', 'plan', 'analyze'];
-    return planningKeywords.some(k => prompt.toLowerCase().includes(k)) || true;
+    return super.execute(context, {
+      onInit: (sessionId) => this.logger.debug(`初始化会话: ${sessionId}`),
+      onText: (_, text) => callbacks?.onText?.(text),
+      onToolUse: (_, name, input) => {
+        this.logger.debug(`使用工具: ${name}`);
+        callbacks?.onToolUse?.(name, input);
+      },
+      onComplete: (_, result) => {
+        this.logger.log(`处理完成: ${result.success ? '成功' : '失败'}`);
+        callbacks?.onComplete?.(result);
+      },
+      onError: (_, error) => {
+        this.logger.error(`处理失败: ${error}`);
+        callbacks?.onError?.(error);
+      },
+    });
   }
 }

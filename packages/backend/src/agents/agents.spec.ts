@@ -13,7 +13,7 @@ const createMockConfigService = () => {
     tangseng: {
       id: 'tangseng',
       name: '唐僧',
-      emoji: '🙏',
+      emoji: '🧘',
       role: 'master',
       persona: '你是唐僧，团队的师父和精神领袖。',
       model: 'claude-opus-4-6',
@@ -22,6 +22,12 @@ const createMockConfigService = () => {
       mcps: [],
       capabilities: ['planning', 'coordination', 'review', 'decision_making'],
       boundaries: ['不直接执行技术任务', '主要负责决策和协调'],
+      taskKeywords: {
+        high: ['帮我', '请帮我', '需要', '想要', '计划', 'plan', '分析', 'analyze'],
+        medium: ['任务', 'task', '分解', 'decompose', '协调', 'coordinate'],
+        low: ['规划', 'planning', '安排', 'schedule', '分配', 'assign'],
+        general: ['帮忙', 'help', '协助', 'assist', '问题', 'problem'],
+      },
     },
     wukong: {
       id: 'wukong',
@@ -35,6 +41,12 @@ const createMockConfigService = () => {
       mcps: [],
       capabilities: ['code', 'debug', 'test', 'refactor'],
       boundaries: [],
+      taskKeywords: {
+        high: ['代码', '实现', '编写', 'code', 'implement', 'write'],
+        medium: ['调试', 'debug', '修复', 'fix', 'bug'],
+        low: ['测试', 'test', '重构', 'refactor'],
+        general: ['开发', 'develop', '创建', 'create'],
+      },
     },
     bajie: {
       id: 'bajie',
@@ -48,6 +60,12 @@ const createMockConfigService = () => {
       mcps: [],
       capabilities: ['document', 'format', 'assist'],
       boundaries: [],
+      taskKeywords: {
+        high: ['文档', 'document', 'doc', 'readme'],
+        medium: ['格式', 'format', '整理', 'organize'],
+        low: ['运行', 'run', '执行', 'execute'],
+        general: ['辅助', 'assist', '帮助', 'help'],
+      },
     },
     shaseng: {
       id: 'shaseng',
@@ -61,11 +79,17 @@ const createMockConfigService = () => {
       mcps: [],
       capabilities: ['review', 'test', 'verify'],
       boundaries: [],
+      taskKeywords: {
+        high: ['审查', 'review', '代码审查'],
+        medium: ['测试', 'test', '验证', 'verify'],
+        low: ['安全', 'security', '漏洞', 'vulnerability'],
+        general: ['质量', 'quality', '检查', 'check'],
+      },
     },
     rulai: {
       id: 'rulai',
       name: '如来佛祖',
-      emoji: '🙏',
+      emoji: '🧘',
       role: 'advisor',
       persona: '你是如来佛祖，资深顾问。',
       model: 'claude-opus-4-6',
@@ -74,6 +98,12 @@ const createMockConfigService = () => {
       mcps: [],
       capabilities: ['advise', 'architect', 'strategize'],
       boundaries: [],
+      taskKeywords: {
+        high: ['架构', 'architecture', '系统设计'],
+        medium: ['复杂', 'complex', '困难', 'difficult'],
+        low: ['建议', 'advice', '咨询', 'consult'],
+        general: ['战略', 'strategy', '规划', 'planning'],
+      },
     },
   };
 
@@ -105,15 +135,13 @@ describe('Agent Implementations', () => {
       expect(agent.getConfig().role).toBe('master');
     });
 
-    it('should analyze prompts', async () => {
-      const result = await agent.analyze('test task');
-      expect(result).toContain('步骤');
+    it('should identify planning tasks', () => {
+      expect(agent.canHandle('帮我做一个任务')).toBe(true);
     });
 
-    it('should execute tasks', async () => {
-      const result = await agent.execute('test task');
-      expect(result.success).toBe(true);
-      expect(result.output).toContain('唐僧');
+    it('should have priority weight for planning tasks', () => {
+      const weight = agent.getPriorityWeight('帮我规划一下这个项目');
+      expect(weight).toBeGreaterThan(0.9);
     });
 
     it('should create execution plan', async () => {
@@ -261,8 +289,8 @@ describe('Agent Implementations', () => {
     });
 
     it('should calculate priority weights', () => {
-      expect(agent.getPriorityWeight('架构设计')).toBeGreaterThan(0.8);
-      expect(agent.getPriorityWeight('技术咨询')).toBeGreaterThan(0.8);
+      expect(agent.getPriorityWeight('架构设计')).toBeGreaterThan(0.8);  // high keyword
+      expect(agent.getPriorityWeight('建议')).toBeGreaterThan(0.7);      // low keyword
     });
   });
 

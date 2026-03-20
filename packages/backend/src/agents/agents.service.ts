@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '../config/config.service';
 import { Agent } from '../database/entities/agent.entity';
 import { AgentConfig, AgentStatus, AgentState } from '@monkagents/shared';
+import { TangsengAgent } from './tangseng.agent';
 import { WukongAgent } from './wukong.agent';
 import { BajieAgent } from './bajie.agent';
 import { ShasengAgent } from './shaseng.agent';
@@ -28,6 +29,7 @@ export class AgentsService implements OnModuleInit {
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly tangsengAgent: TangsengAgent,
     private readonly wukongAgent: WukongAgent,
     private readonly bajieAgent: BajieAgent,
     private readonly shasengAgent: ShasengAgent,
@@ -35,7 +37,8 @@ export class AgentsService implements OnModuleInit {
     @InjectRepository(Agent)
     private readonly agentRepository: Repository<Agent>,
   ) {
-    // 注册可执行智能体
+    // 注册所有可执行智能体（包括唐僧）
+    this.executableAgents.set('tangseng', this.tangsengAgent);
     this.executableAgents.set('wukong', this.wukongAgent);
     this.executableAgents.set('bajie', this.bajieAgent);
     this.executableAgents.set('shaseng', this.shasengAgent);
@@ -204,6 +207,7 @@ export class AgentsService implements OnModuleInit {
    */
   private getAgentName(agentId: string): string {
     const names: Record<string, string> = {
+      tangseng: '唐僧',
       wukong: '孙悟空',
       bajie: '猪八戒',
       shaseng: '沙和尚',
@@ -217,6 +221,7 @@ export class AgentsService implements OnModuleInit {
    */
   private getAgentPriorityWeight(agentId: string, task: string): number {
     const weights: Record<string, number> = {
+      tangseng: this.tangsengAgent.getPriorityWeight(task),
       wukong: this.wukongAgent.getPriorityWeight(task),
       bajie: this.bajieAgent.getPriorityWeight(task),
       shaseng: this.shasengAgent.getPriorityWeight(task),
@@ -230,6 +235,7 @@ export class AgentsService implements OnModuleInit {
    */
   private getAgentReason(agentId: string, task: string): string {
     const reasons: Record<string, string> = {
+      tangseng: '唐僧擅长任务规划、团队协调和结果审核',
       wukong: '孙悟空擅长代码编写、调试和技术任务',
       bajie: '猪八戒擅长文档编写、格式整理和辅助任务',
       shaseng: '沙和尚擅长代码审查、测试和质量保证',

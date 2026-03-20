@@ -4,6 +4,7 @@ import { AgentsService } from './agents.service';
 import { Agent } from '../database/entities/agent.entity';
 import { ConfigService } from '../config/config.service';
 import { AgentStatus, AgentRole } from '@monkagents/shared';
+import { TangsengAgent } from './tangseng.agent';
 import { WukongAgent } from './wukong.agent';
 import { BajieAgent } from './bajie.agent';
 import { ShasengAgent } from './shaseng.agent';
@@ -53,6 +54,14 @@ describe('AgentsService', () => {
   };
 
   // Mock agent instances
+  const mockTangsengAgent = {
+    canHandle: jest.fn().mockReturnValue(true),
+    getPriorityWeight: jest.fn().mockReturnValue(0.5),
+    isAvailable: jest.fn().mockReturnValue(true),
+    getConfig: jest.fn().mockReturnValue({ ...mockAgentConfig, id: 'tangseng', role: 'master' }),
+    getStatus: jest.fn().mockReturnValue('idle'),
+  };
+
   const mockWukongAgent = {
     canHandle: jest.fn().mockReturnValue(true),
     getPriorityWeight: jest.fn().mockReturnValue(0.9),
@@ -98,6 +107,10 @@ describe('AgentsService', () => {
         {
           provide: ConfigService,
           useValue: mockConfigService,
+        },
+        {
+          provide: TangsengAgent,
+          useValue: mockTangsengAgent,
         },
         {
           provide: WukongAgent,
@@ -263,6 +276,7 @@ describe('AgentsService', () => {
 
       await service.onModuleInit();
 
+      mockTangsengAgent.canHandle.mockReturnValue(false);
       mockWukongAgent.canHandle.mockReturnValue(false);
       mockBajieAgent.canHandle.mockReturnValue(false);
       mockShasengAgent.canHandle.mockReturnValue(false);

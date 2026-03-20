@@ -6,123 +6,24 @@ import { ConfigService } from '../config/config.service';
 /**
  * 孙悟空智能体 - 主力执行者
  * 负责：代码编写、调试、测试、重构等具体技术任务
+ * 所有行为由配置文件驱动
  */
 @Injectable()
 export class WukongAgent extends ExecutableAgentBase implements OnModuleInit {
-  private configService: ConfigService;
-
-  constructor(configService: ConfigService) {
-    // Pass empty config initially, will be set in onModuleInit
+  constructor(private readonly configService: ConfigService) {
     super({} as AgentConfig);
-    this.configService = configService;
   }
 
   onModuleInit() {
     const config = this.configService.getAgentConfig('wukong');
     if (config) {
       this.config = config;
-      // Re-initialize logger with correct name
       (this.logger as any).context = `${config.name}Agent`;
     }
   }
 
   /**
-   * 检查任务是否匹配孙悟空的能力范围
-   * 孙悟空擅长：代码编写、调试、测试、重构等具体技术任务
-   */
-  canHandle(task: string): boolean {
-    const taskLower = task.toLowerCase();
-
-    // 代码相关关键词
-    const codeKeywords = [
-      '代码', '实现', '编写', '写一个', '开发',
-      'code', 'implement', 'write', 'develop',
-      'function', 'class', 'module', 'component',
-      'api', 'interface', 'service',
-    ];
-
-    // 调试相关关键词
-    const debugKeywords = [
-      '调试', 'debug', '修复', 'fix', 'bug', '错误', 'error',
-      '问题', 'issue', '异常', 'exception',
-    ];
-
-    // 测试相关关键词
-    const testKeywords = [
-      '测试', 'test', '单元测试', 'unit test',
-      '集成测试', 'integration test',
-    ];
-
-    // 重构相关关键词
-    const refactorKeywords = [
-      '重构', 'refactor', '优化', 'optimize',
-      '改进', 'improve', '清理', 'clean',
-    ];
-
-    // 文件操作关键词
-    const fileKeywords = [
-      '创建文件', 'create file', '修改文件', 'modify file',
-      '读取文件', 'read file', '删除文件', 'delete file',
-    ];
-
-    const allKeywords = [
-      ...codeKeywords,
-      ...debugKeywords,
-      ...testKeywords,
-      ...refactorKeywords,
-      ...fileKeywords,
-    ];
-
-    return allKeywords.some(keyword => taskLower.includes(keyword));
-  }
-
-  /**
-   * 获取任务优先级权重
-   * 用于任务分配时确定最优智能体
-   */
-  getPriorityWeight(task: string): number {
-    const taskLower = task.toLowerCase();
-
-    // 孙悟空擅长的高优先级任务
-    if (this.matchesCoding(taskLower)) return 0.95;
-    if (this.matchesDebugging(taskLower)) return 0.9;
-    if (this.matchesTesting(taskLower)) return 0.85;
-    if (this.matchesRefactoring(taskLower)) return 0.8;
-
-    // 默认权重
-    return 0.5;
-  }
-
-  private matchesCoding(task: string): boolean {
-    const keywords = ['代码', '实现', '编写', 'code', 'implement', 'write'];
-    return keywords.some(k => task.includes(k));
-  }
-
-  private matchesDebugging(task: string): boolean {
-    const keywords = ['调试', 'debug', '修复', 'fix', 'bug'];
-    return keywords.some(k => task.includes(k));
-  }
-
-  private matchesTesting(task: string): boolean {
-    const keywords = ['测试', 'test'];
-    return keywords.some(k => task.includes(k));
-  }
-
-  private matchesRefactoring(task: string): boolean {
-    const keywords = ['重构', 'refactor', '优化', 'optimize'];
-    return keywords.some(k => task.includes(k));
-  }
-
-  /**
-   * 构建专属的系统提示
-   */
-  protected override getSystemPrompt(): string {
-    return this.config.persona;
-  }
-
-  /**
    * 执行任务
-   * 使用 CLI 进行实际的代码执行
    */
   async executeTask(
     context: AgentExecutionContext,
@@ -135,28 +36,21 @@ export class WukongAgent extends ExecutableAgentBase implements OnModuleInit {
   ): Promise<CliExecutionResult> {
     this.logger.log(`孙悟空开始执行任务: ${context.prompt.substring(0, 50)}...`);
 
-    // 包装回调，添加智能体名称前缀
-    const wrappedCallbacks = {
-      onInit: (_sessionId: string) => {
-        this.logger.debug(`初始化会话: ${_sessionId}`);
-      },
-      onText: (_sessionId: string, text: string) => {
-        callbacks?.onText?.(text);
-      },
-      onToolUse: (_sessionId: string, name: string, input: Record<string, unknown>) => {
+    return super.execute(context, {
+      onInit: (sessionId) => this.logger.debug(`初始化会话: ${sessionId}`),
+      onText: (_, text) => callbacks?.onText?.(text),
+      onToolUse: (_, name, input) => {
         this.logger.debug(`使用工具: ${name}`);
         callbacks?.onToolUse?.(name, input);
       },
-      onComplete: (_sessionId: string, result: CliExecutionResult) => {
+      onComplete: (_, result) => {
         this.logger.log(`任务完成: ${result.success ? '成功' : '失败'}`);
         callbacks?.onComplete?.(result);
       },
-      onError: (_sessionId: string, error: string) => {
+      onError: (_, error) => {
         this.logger.error(`任务失败: ${error}`);
         callbacks?.onError?.(error);
       },
-    };
-
-    return super.execute(context, wrappedCallbacks);
+    });
   }
 }
