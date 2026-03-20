@@ -62,21 +62,21 @@ describe('Agent Implementations', () => {
       expect(agent.getConfig().skills).toContain('coding');
     });
 
-    it('should analyze prompts', async () => {
-      const result = await agent.analyze('write code');
-      expect(result).toContain('孙悟空');
-    });
-
-    it('should execute tasks', async () => {
-      const result = await agent.execute('fix bug');
-      expect(result.success).toBe(true);
-    });
-
     it('should identify code-related tasks', () => {
       expect(agent.canHandle('写一些代码')).toBe(true); // '代码' is a keyword
       expect(agent.canHandle('debug this issue')).toBe(true);
       expect(agent.canHandle('fix the bug')).toBe(true);
       expect(agent.canHandle('make me coffee')).toBe(false);
+    });
+
+    it('should calculate priority weights', () => {
+      expect(agent.getPriorityWeight('实现一个功能')).toBeGreaterThan(0.8);
+      expect(agent.getPriorityWeight('debug issue')).toBeGreaterThan(0.8);
+      expect(agent.getPriorityWeight('hello world')).toBeLessThan(0.6);
+    });
+
+    it('should be available initially', () => {
+      expect(agent.isAvailable()).toBe(true);
     });
   });
 
@@ -100,9 +100,14 @@ describe('Agent Implementations', () => {
     });
 
     it('should identify suitable tasks', () => {
-      expect(agent.isSuitableTask('write documentation')).toBe(true);
-      expect(agent.isSuitableTask('format the code')).toBe(true);
-      expect(agent.isSuitableTask('refactor architecture')).toBe(false);
+      expect(agent.canHandle('write documentation')).toBe(true);
+      expect(agent.canHandle('format the code')).toBe(true);
+      expect(agent.canHandle('run npm install')).toBe(true);
+    });
+
+    it('should calculate priority weights', () => {
+      expect(agent.getPriorityWeight('写文档')).toBeGreaterThan(0.8);
+      expect(agent.getPriorityWeight('整理格式')).toBeGreaterThan(0.8);
     });
   });
 
@@ -125,10 +130,16 @@ describe('Agent Implementations', () => {
       expect(agent.getConfig().skills).toContain('code_review');
     });
 
-    it('should review code', async () => {
-      const result = await agent.reviewCode('some code');
-      expect(result.issues).toBeDefined();
-      expect(result.suggestions).toBeDefined();
+    it('should identify review-related tasks', () => {
+      expect(agent.canHandle('审查代码')).toBe(true);
+      expect(agent.canHandle('code review')).toBe(true);
+      expect(agent.canHandle('运行测试')).toBe(true);
+      expect(agent.canHandle('security check')).toBe(true);
+    });
+
+    it('should calculate priority weights', () => {
+      expect(agent.getPriorityWeight('代码审查')).toBeGreaterThan(0.8);
+      expect(agent.getPriorityWeight('测试验证')).toBeGreaterThan(0.8);
     });
   });
 
@@ -151,9 +162,38 @@ describe('Agent Implementations', () => {
       expect(agent.getConfig().model).toContain('opus');
     });
 
-    it('should provide guidance', async () => {
-      const guidance = await agent.provideGuidance('architecture question');
-      expect(guidance).toBeDefined();
+    it('should identify advisory tasks', () => {
+      expect(agent.canHandle('架构设计')).toBe(true);
+      expect(agent.canHandle('architecture advice')).toBe(true);
+      expect(agent.canHandle('复杂问题')).toBe(true);
+    });
+
+    it('should calculate priority weights', () => {
+      expect(agent.getPriorityWeight('架构设计')).toBeGreaterThan(0.8);
+      expect(agent.getPriorityWeight('技术咨询')).toBeGreaterThan(0.8);
+    });
+  });
+
+  describe('ExecutableAgentBase', () => {
+    let wukongAgent: WukongAgent;
+
+    beforeEach(() => {
+      wukongAgent = new WukongAgent();
+    });
+
+    it('should build proper prompt with context', () => {
+      // Agent should have config
+      expect(wukongAgent.getConfig()).toBeDefined();
+      expect(wukongAgent.getConfig().id).toBe('wukong');
+    });
+
+    it('should track status changes', () => {
+      expect(wukongAgent.getStatus()).toBe('idle');
+    });
+
+    it('should be able to cancel', () => {
+      // Cancel should not throw when no process running
+      expect(() => wukongAgent.cancel()).not.toThrow();
     });
   });
 });

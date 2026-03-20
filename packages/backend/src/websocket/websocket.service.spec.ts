@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WebSocketService } from './websocket.service';
 import { Socket, Server } from 'socket.io';
+import { AgentMentionService } from '../agents/agent-mention.service';
+import { AgentsService } from '../agents/agents.service';
 
 describe('WebSocketService', () => {
   let service: WebSocketService;
@@ -18,11 +20,37 @@ describe('WebSocketService', () => {
     emit: jest.fn(),
   };
 
+  const mockMentionService = {
+    parseMessage: jest.fn().mockReturnValue({
+      originalContent: 'test',
+      cleanedContent: 'test',
+      mentions: [],
+      hasMentions: false,
+    }),
+    getAgentName: jest.fn().mockReturnValue('孙悟空'),
+    buildCollaborationInstruction: jest.fn().mockReturnValue('test'),
+  };
+
+  const mockAgentsService = {
+    getAgentsStatusSummary: jest.fn().mockReturnValue({}),
+    getExecutableAgent: jest.fn().mockReturnValue(null),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [WebSocketService],
+      providers: [
+        WebSocketService,
+        {
+          provide: AgentMentionService,
+          useValue: mockMentionService,
+        },
+        {
+          provide: AgentsService,
+          useValue: mockAgentsService,
+        },
+      ],
     }).compile();
 
     service = module.get<WebSocketService>(WebSocketService);

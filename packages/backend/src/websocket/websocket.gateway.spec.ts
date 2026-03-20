@@ -3,6 +3,7 @@ import { WebSocketGateway } from './websocket.gateway';
 import { WebSocketService } from './websocket.service';
 import { TangsengAgent } from '../agents/tangseng.agent';
 import { TasksService } from '../tasks/tasks.service';
+import { TaskPlanner } from '../agents/task-planner';
 import { Socket } from 'socket.io';
 
 describe('WebSocketGateway', () => {
@@ -28,10 +29,15 @@ describe('WebSocketGateway', () => {
 
   const mockTangsengAgent = {
     processUserMessage: jest.fn(),
+    setDependencies: jest.fn(),
   };
 
   const mockTasksService = {
     cancel: jest.fn(),
+  };
+
+  const mockTaskPlanner = {
+    decomposeTask: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -51,6 +57,10 @@ describe('WebSocketGateway', () => {
         {
           provide: TasksService,
           useValue: mockTasksService,
+        },
+        {
+          provide: TaskPlanner,
+          useValue: mockTaskPlanner,
         },
       ],
     }).compile();

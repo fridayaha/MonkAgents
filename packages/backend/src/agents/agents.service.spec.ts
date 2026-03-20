@@ -4,6 +4,10 @@ import { AgentsService } from './agents.service';
 import { Agent } from '../database/entities/agent.entity';
 import { ConfigService } from '../config/config.service';
 import { AgentStatus, AgentRole } from '@monkagents/shared';
+import { WukongAgent } from './wukong.agent';
+import { BajieAgent } from './bajie.agent';
+import { ShasengAgent } from './shaseng.agent';
+import { RulaiAgent } from './rulai.agent';
 
 describe('AgentsService', () => {
   let service: AgentsService;
@@ -48,6 +52,39 @@ describe('AgentsService', () => {
     getAgentConfig: jest.fn(),
   };
 
+  // Mock agent instances
+  const mockWukongAgent = {
+    canHandle: jest.fn().mockReturnValue(true),
+    getPriorityWeight: jest.fn().mockReturnValue(0.9),
+    isAvailable: jest.fn().mockReturnValue(true),
+    getConfig: jest.fn().mockReturnValue(mockAgentConfig),
+    getStatus: jest.fn().mockReturnValue('idle'),
+  };
+
+  const mockBajieAgent = {
+    canHandle: jest.fn().mockReturnValue(false),
+    getPriorityWeight: jest.fn().mockReturnValue(0.5),
+    isAvailable: jest.fn().mockReturnValue(true),
+    getConfig: jest.fn().mockReturnValue({ ...mockAgentConfig, id: 'bajie' }),
+    getStatus: jest.fn().mockReturnValue('idle'),
+  };
+
+  const mockShasengAgent = {
+    canHandle: jest.fn().mockReturnValue(false),
+    getPriorityWeight: jest.fn().mockReturnValue(0.5),
+    isAvailable: jest.fn().mockReturnValue(true),
+    getConfig: jest.fn().mockReturnValue({ ...mockAgentConfig, id: 'shaseng' }),
+    getStatus: jest.fn().mockReturnValue('idle'),
+  };
+
+  const mockRulaiAgent = {
+    canHandle: jest.fn().mockReturnValue(false),
+    getPriorityWeight: jest.fn().mockReturnValue(0.3),
+    isAvailable: jest.fn().mockReturnValue(true),
+    getConfig: jest.fn().mockReturnValue({ ...mockAgentConfig, id: 'rulai' }),
+    getStatus: jest.fn().mockReturnValue('idle'),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -61,6 +98,22 @@ describe('AgentsService', () => {
         {
           provide: ConfigService,
           useValue: mockConfigService,
+        },
+        {
+          provide: WukongAgent,
+          useValue: mockWukongAgent,
+        },
+        {
+          provide: BajieAgent,
+          useValue: mockBajieAgent,
+        },
+        {
+          provide: ShasengAgent,
+          useValue: mockShasengAgent,
+        },
+        {
+          provide: RulaiAgent,
+          useValue: mockRulaiAgent,
         },
       ],
     }).compile();
@@ -184,6 +237,77 @@ describe('AgentsService', () => {
       const available = await service.getAvailableAgents();
       expect(available.length).toBe(1);
       expect(available[0].id).toBe('bajie');
+    });
+  });
+
+  describe('selectBestAgent', () => {
+    it('should select the best agent for a task', async () => {
+      mockConfigService.getAllAgentConfigs.mockReturnValue([mockAgentConfig]);
+      mockRepository.findOne.mockResolvedValue(mockAgent);
+
+      await service.onModuleInit();
+
+      mockWukongAgent.canHandle.mockReturnValue(true);
+      mockWukongAgent.getPriorityWeight.mockReturnValue(0.9);
+      mockBajieAgent.canHandle.mockReturnValue(false);
+
+      const result = service.selectBestAgent('写代码实现功能');
+
+      expect(result.agentId).toBe('wukong');
+      expect(result.weight).toBe(0.9);
+    });
+
+    it('should default to wukong when no agent matches', async () => {
+      mockConfigService.getAllAgentConfigs.mockReturnValue([mockAgentConfig]);
+      mockRepository.findOne.mockResolvedValue(mockAgent);
+
+      await service.onModuleInit();
+
+      mockWukongAgent.canHandle.mockReturnValue(false);
+      mockBajieAgent.canHandle.mockReturnValue(false);
+      mockShasengAgent.canHandle.mockReturnValue(false);
+      mockRulaiAgent.canHandle.mockReturnValue(false);
+
+      const result = service.selectBestAgent('随机任务');
+
+      expect(result.agentId).toBe('wukong');
+      expect(result.weight).toBe(0.5);
+    });
+  });
+
+  describe('getExecutableAgent', () => {
+    it('should return the executable agent instance', async () => {
+      mockConfigService.getAllAgentConfigs.mockReturnValue([mockAgentConfig]);
+      mockRepository.findOne.mockResolvedValue(mockAgent);
+
+      await service.onModuleInit();
+
+      const agent = service.getExecutableAgent('wukong');
+      expect(agent).toBe(mockWukongAgent);
+    });
+
+    it('should return undefined for unknown agent', async () => {
+      mockConfigService.getAllAgentConfigs.mockReturnValue([]);
+
+      await service.onModuleInit();
+
+      const agent = service.getExecutableAgent('unknown');
+      expect(agent).toBeUndefined();
+    });
+  });
+
+  describe('getAgentsStatusSummary', () => {
+    it('should return status summary for all agents', async () => {
+      mockConfigService.getAllAgentConfigs.mockReturnValue([mockAgentConfig]);
+      mockRepository.findOne.mockResolvedValue(mockAgent);
+
+      await service.onModuleInit();
+
+      const summary = service.getAgentsStatusSummary();
+
+      expect(summary['wukong']).toBeDefined();
+      expect(summary['wukong'].status).toBe('idle');
+      expect(summary['wukong'].available).toBe(true);
     });
   });
 });

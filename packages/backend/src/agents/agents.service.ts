@@ -4,17 +4,43 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '../config/config.service';
 import { Agent } from '../database/entities/agent.entity';
 import { AgentConfig, AgentStatus, AgentState } from '@monkagents/shared';
+import { WukongAgent } from './wukong.agent';
+import { BajieAgent } from './bajie.agent';
+import { ShasengAgent } from './shaseng.agent';
+import { RulaiAgent } from './rulai.agent';
+import { ExecutableAgentBase } from './executable-agent-base';
+
+/**
+ * 智能体选择结果
+ */
+export interface AgentSelectionResult {
+  agentId: string;
+  agentName: string;
+  weight: number;
+  reason: string;
+}
 
 @Injectable()
 export class AgentsService implements OnModuleInit {
   private readonly logger = new Logger(AgentsService.name);
   private agentStates: Map<string, AgentState> = new Map();
+  private executableAgents: Map<string, ExecutableAgentBase> = new Map();
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly wukongAgent: WukongAgent,
+    private readonly bajieAgent: BajieAgent,
+    private readonly shasengAgent: ShasengAgent,
+    private readonly rulaiAgent: RulaiAgent,
     @InjectRepository(Agent)
     private readonly agentRepository: Repository<Agent>,
-  ) {}
+  ) {
+    // 注册可执行智能体
+    this.executableAgents.set('wukong', this.wukongAgent);
+    this.executableAgents.set('bajie', this.bajieAgent);
+    this.executableAgents.set('shaseng', this.shasengAgent);
+    this.executableAgents.set('rulai', this.rulaiAgent);
+  }
 
   async onModuleInit() {
     await this.initializeAgents();
@@ -125,5 +151,153 @@ export class AgentsService implements OnModuleInit {
     return Array.from(this.agentStates.values()).filter(
       (agent) => agent.config.role === role,
     );
+  }
+
+  /**
+   * 获取可执行智能体实例
+   */
+  getExecutableAgent(agentId: string): ExecutableAgentBase | undefined {
+    return this.executableAgents.get(agentId);
+  }
+
+  /**
+   * 选择最适合执行任务的智能体
+   */
+  selectBestAgent(task: string): AgentSelectionResult {
+    const taskLower = task.toLowerCase();
+    const candidates: Array<{ agentId: string; weight: number; reason: string }> = [];
+
+    // 遍历所有可执行智能体，计算优先级权重
+    for (const [agentId, agent] of this.executableAgents) {
+      if (agent.canHandle(task)) {
+        // 使用类型断言来调用 getPriorityWeight 方法
+        const weight = this.getAgentPriorityWeight(agentId, taskLower);
+        const reason = this.getAgentReason(agentId, taskLower);
+        candidates.push({ agentId, weight, reason });
+      }
+    }
+
+    // 如果没有匹配的智能体，默认使用孙悟空
+    if (candidates.length === 0) {
+      return {
+        agentId: 'wukong',
+        agentName: '孙悟空',
+        weight: 0.5,
+        reason: '默认分配给孙悟空处理常规任务',
+      };
+    }
+
+    // 按权重排序，选择最合适的
+    candidates.sort((a, b) => b.weight - a.weight);
+    const best = candidates[0];
+
+    return {
+      agentId: best.agentId,
+      agentName: this.getAgentName(best.agentId),
+      weight: best.weight,
+      reason: best.reason,
+    };
+  }
+
+  /**
+   * 获取智能体名称
+   */
+  private getAgentName(agentId: string): string {
+    const names: Record<string, string> = {
+      wukong: '孙悟空',
+      bajie: '猪八戒',
+      shaseng: '沙僧',
+      rulai: '如来佛祖',
+    };
+    return names[agentId] || agentId;
+  }
+
+  /**
+   * 获取智能体优先级权重
+   */
+  private getAgentPriorityWeight(agentId: string, task: string): number {
+    const weights: Record<string, number> = {
+      wukong: this.wukongAgent.getPriorityWeight(task),
+      bajie: this.bajieAgent.getPriorityWeight(task),
+      shaseng: this.shasengAgent.getPriorityWeight(task),
+      rulai: this.rulaiAgent.getPriorityWeight(task),
+    };
+    return weights[agentId] || 0.5;
+  }
+
+  /**
+   * 获取选择智能体的原因
+   */
+  private getAgentReason(agentId: string, task: string): string {
+    const reasons: Record<string, string> = {
+      wukong: '孙悟空擅长代码编写、调试和技术任务',
+      bajie: '猪八戒擅长文档编写、格式整理和辅助任务',
+      shaseng: '沙僧擅长代码审查、测试和质量保证',
+      rulai: '如来佛祖擅长架构设计、技术咨询和复杂问题',
+    };
+
+    // 根据任务特点给出更具体的原因
+    if (agentId === 'wukong') {
+      if (task.includes('代码') || task.includes('实现')) {
+        return '孙悟空最适合代码实现任务';
+      }
+      if (task.includes('debug') || task.includes('修复')) {
+        return '孙悟空最适合调试和问题修复';
+      }
+    }
+
+    if (agentId === 'shaseng') {
+      if (task.includes('审查') || task.includes('review')) {
+        return '沙僧最适合代码审查任务';
+      }
+      if (task.includes('测试') || task.includes('test')) {
+        return '沙僧最适合测试验证任务';
+      }
+    }
+
+    if (agentId === 'bajie') {
+      if (task.includes('文档') || task.includes('doc')) {
+        return '猪八戒最适合文档编写任务';
+      }
+      if (task.includes('格式') || task.includes('format')) {
+        return '猪八戒最适合格式整理任务';
+      }
+    }
+
+    if (agentId === 'rulai') {
+      if (task.includes('架构') || task.includes('architecture')) {
+        return '如来佛祖最适合架构设计任务';
+      }
+      if (task.includes('复杂') || task.includes('困难')) {
+        return '如来佛祖最适合处理复杂问题';
+      }
+    }
+
+    return reasons[agentId] || '根据能力匹配分配';
+  }
+
+  /**
+   * 检查智能体是否可用
+   */
+  isAgentAvailable(agentId: string): boolean {
+    const agent = this.executableAgents.get(agentId);
+    return agent ? agent.isAvailable() : false;
+  }
+
+  /**
+   * 获取所有智能体的状态摘要
+   */
+  getAgentsStatusSummary(): Record<string, { status: AgentStatus; available: boolean }> {
+    const summary: Record<string, { status: AgentStatus; available: boolean }> = {};
+
+    for (const [agentId, agent] of this.executableAgents) {
+      const state = this.agentStates.get(agentId);
+      summary[agentId] = {
+        status: state?.status || 'idle',
+        available: agent.isAvailable(),
+      };
+    }
+
+    return summary;
   }
 }
