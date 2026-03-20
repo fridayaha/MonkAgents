@@ -1,49 +1,27 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ExecutableAgentBase, AgentExecutionContext } from './executable-agent-base';
 import { AgentConfig, CliExecutionResult } from '@monkagents/shared';
+import { ConfigService } from '../config/config.service';
 
 /**
  * 猪八戒智能体 - 助手
  * 负责：文档编写、格式整理、简单命令执行等辅助性任务
  */
 @Injectable()
-export class BajieAgent extends ExecutableAgentBase {
-  private persona: string;
+export class BajieAgent extends ExecutableAgentBase implements OnModuleInit {
+  private configService: ConfigService;
 
-  constructor() {
-    const defaultConfig: AgentConfig = {
-      id: 'bajie',
-      name: '猪八戒',
-      emoji: '🐷',
-      role: 'assistant',
-      persona: `你是猪八戒，团队的助手。你帮助完成辅助性的任务，比如编写文档、整理代码、运行简单命令等。
+  constructor(configService: ConfigService) {
+    super({} as AgentConfig);
+    this.configService = configService;
+  }
 
-性格特点：
-- 乐于助人，愿意承担杂务
-- 有时有点懒散，但工作可靠
-- 善于调节团队气氛
-- 对分配的任务认真负责
-
-工作方式：
-1. 接受分配的辅助任务
-2. 按要求完成文档编写、格式整理等工作
-3. 协助运行测试和构建命令
-4. 及时汇报任务进度
-5. 在需要时提供支持
-
-技能：文档编写、格式整理、简单命令执行`,
-      model: 'claude-sonnet-4-6',
-      cli: {
-        command: 'claude',
-        args: ['-p', '--output-format', 'stream-json', '--verbose'],
-      },
-      skills: ['documentation', 'formatting', 'simple_tasks'],
-      mcps: [],
-      capabilities: ['documentation', 'file_operations', 'simple_commands'],
-      boundaries: ['不处理复杂的编程任务', '不做技术决策'],
-    };
-    super(defaultConfig);
-    this.persona = defaultConfig.persona;
+  onModuleInit() {
+    const config = this.configService.getAgentConfig('bajie');
+    if (config) {
+      this.config = config;
+      (this.logger as any).context = `${config.name}Agent`;
+    }
   }
 
   /**
@@ -128,7 +106,7 @@ export class BajieAgent extends ExecutableAgentBase {
    * 构建专属的系统提示
    */
   protected override getSystemPrompt(): string {
-    return this.persona;
+    return this.config.persona;
   }
 
   /**

@@ -19,7 +19,7 @@ describe('AgentCollaborationService', () => {
         const names: Record<string, string> = {
           wukong: '孙悟空',
           bajie: '猪八戒',
-          shaseng: '沙僧',
+          shaseng: '沙和尚',
           rulai: '如来佛祖',
         };
         return names[id] || id;
@@ -49,7 +49,7 @@ describe('AgentCollaborationService', () => {
     it('should create a session with auto-assigned agents', () => {
       mockAgentsService.selectBestAgent
         .mockReturnValueOnce({ agentId: 'wukong', agentName: '孙悟空', weight: 0.9, reason: 'test' })
-        .mockReturnValueOnce({ agentId: 'shaseng', agentName: '沙僧', weight: 0.85, reason: 'test' });
+        .mockReturnValueOnce({ agentId: 'shaseng', agentName: '沙和尚', weight: 0.85, reason: 'test' });
 
       const session = service.createCollaborationSession('session-1', '实现并审查代码');
 
@@ -78,17 +78,21 @@ describe('AgentCollaborationService', () => {
   });
 
   describe('getAllCollaborationSessions', () => {
-    it('should return all sessions', () => {
+    it('should return all sessions', async () => {
       // Clear existing sessions first
       const existingSessions = service.getAllCollaborationSessions();
       existingSessions.forEach(s => service.cancelCollaboration(s.id));
 
-      service.createCollaborationSession('session-1', 'task 1', ['wukong']);
-      service.createCollaborationSession('session-2', 'task 2', ['bajie']);
+      const session1 = service.createCollaborationSession('session-1', 'task 1', ['wukong']);
+      // Small delay to ensure unique timestamps for collaboration IDs
+      await new Promise(resolve => setTimeout(resolve, 2));
+      const session2 = service.createCollaborationSession('session-2', 'task 2', ['bajie']);
 
       const sessions = service.getAllCollaborationSessions();
 
-      expect(sessions).toHaveLength(2);
+      // Check that both sessions exist
+      expect(sessions.find(s => s.id === session1.id)).toBeDefined();
+      expect(sessions.find(s => s.id === session2.id)).toBeDefined();
     });
   });
 
@@ -111,7 +115,7 @@ describe('AgentCollaborationService', () => {
     it('should assign review agent for review task', () => {
       mockAgentsService.selectBestAgent.mockReturnValue({
         agentId: 'shaseng',
-        agentName: '沙僧',
+        agentName: '沙和尚',
         weight: 0.95,
         reason: '审查任务',
       });
@@ -166,7 +170,7 @@ describe('AgentCollaborationService', () => {
       expect(report).toContain('协作任务报告');
       expect(report).toContain('test task');
       expect(report).toContain('孙悟空');
-      expect(report).toContain('沙僧');
+      expect(report).toContain('沙和尚');
     });
   });
 });

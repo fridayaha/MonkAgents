@@ -3,6 +3,7 @@ import { WebSocketService } from './websocket.service';
 import { Socket, Server } from 'socket.io';
 import { AgentMentionService } from '../agents/agent-mention.service';
 import { AgentsService } from '../agents/agents.service';
+import { ChatService } from '../agents/chat.service';
 
 describe('WebSocketService', () => {
   let service: WebSocketService;
@@ -36,6 +37,14 @@ describe('WebSocketService', () => {
     getExecutableAgent: jest.fn().mockReturnValue(null),
   };
 
+  const mockChatService = {
+    isChatMessage: jest.fn().mockReturnValue(false),
+    isTaskRequest: jest.fn().mockReturnValue(false),
+    handleChatMessage: jest.fn(),
+    generateTaskBreakdown: jest.fn().mockReturnValue({ analysis: '', assignments: [] }),
+    generateTangsengTaskResponse: jest.fn().mockReturnValue(''),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -49,6 +58,10 @@ describe('WebSocketService', () => {
         {
           provide: AgentsService,
           useValue: mockAgentsService,
+        },
+        {
+          provide: ChatService,
+          useValue: mockChatService,
         },
       ],
     }).compile();

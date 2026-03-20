@@ -10,10 +10,12 @@ import { ShasengAgent } from './shaseng.agent';
 import { RulaiAgent } from './rulai.agent';
 import { AgentMentionService } from './agent-mention.service';
 import { AgentCollaborationService } from './agent-collaboration.service';
+import { ChatService } from './chat.service';
 import { Agent } from '../database/entities/agent.entity';
+import { ConfigModule } from '../config/config.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Agent])],
+  imports: [TypeOrmModule.forFeature([Agent]), ConfigModule],
   providers: [
     AgentsService,
     TaskPlanner,
@@ -24,6 +26,7 @@ import { Agent } from '../database/entities/agent.entity';
     RulaiAgent,
     AgentMentionService,
     AgentCollaborationService,
+    ChatService,
   ],
   controllers: [AgentsController],
   exports: [
@@ -36,6 +39,7 @@ import { Agent } from '../database/entities/agent.entity';
     RulaiAgent,
     AgentMentionService,
     AgentCollaborationService,
+    ChatService,
   ],
 })
 export class AgentsModule {}

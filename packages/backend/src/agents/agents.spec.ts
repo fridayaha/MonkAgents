@@ -4,14 +4,94 @@ import { BajieAgent } from './bajie.agent';
 import { ShasengAgent } from './shaseng.agent';
 import { RulaiAgent } from './rulai.agent';
 import { TaskPlanner } from './task-planner';
+import { ConfigService } from '../config/config.service';
+import { AgentConfig } from '@monkagents/shared';
+
+// Mock ConfigService with agent configs
+const createMockConfigService = () => {
+  const agentConfigs: Record<string, AgentConfig> = {
+    tangseng: {
+      id: 'tangseng',
+      name: '唐僧',
+      emoji: '🙏',
+      role: 'master',
+      persona: '你是唐僧，团队的师父和精神领袖。',
+      model: 'claude-opus-4-6',
+      cli: { command: 'claude', args: ['-p', '--output-format', 'stream-json', '--verbose'] },
+      skills: ['planning', 'coordination'],
+      mcps: [],
+      capabilities: ['planning', 'coordination', 'review', 'decision_making'],
+      boundaries: ['不直接执行技术任务', '主要负责决策和协调'],
+    },
+    wukong: {
+      id: 'wukong',
+      name: '孙悟空',
+      emoji: '🐵',
+      role: 'executor',
+      persona: '你是孙悟空，主力执行者。',
+      model: 'claude-sonnet-4-6',
+      cli: { command: 'claude', args: ['-p', '--output-format', 'stream-json', '--verbose'] },
+      skills: ['coding', 'debugging', 'testing', 'refactoring'],
+      mcps: [],
+      capabilities: ['code', 'debug', 'test', 'refactor'],
+      boundaries: [],
+    },
+    bajie: {
+      id: 'bajie',
+      name: '猪八戒',
+      emoji: '🐷',
+      role: 'assistant',
+      persona: '你是猪八戒，助手。',
+      model: 'claude-sonnet-4-6',
+      cli: { command: 'claude', args: ['-p', '--output-format', 'stream-json', '--verbose'] },
+      skills: ['documentation', 'formatting', 'commands'],
+      mcps: [],
+      capabilities: ['document', 'format', 'assist'],
+      boundaries: [],
+    },
+    shaseng: {
+      id: 'shaseng',
+      name: '沙和尚',
+      emoji: '🧔',
+      role: 'inspector',
+      persona: '你是沙和尚，检查者。',
+      model: 'claude-sonnet-4-6',
+      cli: { command: 'claude', args: ['-p', '--output-format', 'stream-json', '--verbose'] },
+      skills: ['code_review', 'testing', 'security', 'quality'],
+      mcps: [],
+      capabilities: ['review', 'test', 'verify'],
+      boundaries: [],
+    },
+    rulai: {
+      id: 'rulai',
+      name: '如来佛祖',
+      emoji: '🙏',
+      role: 'advisor',
+      persona: '你是如来佛祖，资深顾问。',
+      model: 'claude-opus-4-6',
+      cli: { command: 'claude', args: ['-p', '--output-format', 'stream-json', '--verbose'] },
+      skills: ['architecture', 'advisory', 'strategy'],
+      mcps: [],
+      capabilities: ['advise', 'architect', 'strategize'],
+      boundaries: [],
+    },
+  };
+
+  return {
+    getAgentConfig: (id: string) => agentConfigs[id],
+  } as unknown as ConfigService;
+};
 
 describe('Agent Implementations', () => {
   describe('TangsengAgent', () => {
     let agent: TangsengAgent;
     let taskPlanner: TaskPlanner;
+    let mockConfigService: ConfigService;
 
     beforeEach(() => {
-      agent = new TangsengAgent();
+      mockConfigService = createMockConfigService();
+      agent = new TangsengAgent(mockConfigService);
+      agent.onModuleInit(); // Trigger config loading
       taskPlanner = new TaskPlanner();
       // Inject dependencies
       agent.setDependencies(taskPlanner, null as any, null as any);
@@ -45,9 +125,12 @@ describe('Agent Implementations', () => {
 
   describe('WukongAgent', () => {
     let agent: WukongAgent;
+    let mockConfigService: ConfigService;
 
     beforeEach(() => {
-      agent = new WukongAgent();
+      mockConfigService = createMockConfigService();
+      agent = new WukongAgent(mockConfigService);
+      agent.onModuleInit(); // Trigger config loading
     });
 
     it('should have correct id', () => {
@@ -82,9 +165,12 @@ describe('Agent Implementations', () => {
 
   describe('BajieAgent', () => {
     let agent: BajieAgent;
+    let mockConfigService: ConfigService;
 
     beforeEach(() => {
-      agent = new BajieAgent();
+      mockConfigService = createMockConfigService();
+      agent = new BajieAgent(mockConfigService);
+      agent.onModuleInit(); // Trigger config loading
     });
 
     it('should have correct id', () => {
@@ -113,9 +199,12 @@ describe('Agent Implementations', () => {
 
   describe('ShasengAgent', () => {
     let agent: ShasengAgent;
+    let mockConfigService: ConfigService;
 
     beforeEach(() => {
-      agent = new ShasengAgent();
+      mockConfigService = createMockConfigService();
+      agent = new ShasengAgent(mockConfigService);
+      agent.onModuleInit(); // Trigger config loading
     });
 
     it('should have correct id', () => {
@@ -145,9 +234,12 @@ describe('Agent Implementations', () => {
 
   describe('RulaiAgent', () => {
     let agent: RulaiAgent;
+    let mockConfigService: ConfigService;
 
     beforeEach(() => {
-      agent = new RulaiAgent();
+      mockConfigService = createMockConfigService();
+      agent = new RulaiAgent(mockConfigService);
+      agent.onModuleInit(); // Trigger config loading
     });
 
     it('should have correct id', () => {
@@ -176,9 +268,12 @@ describe('Agent Implementations', () => {
 
   describe('ExecutableAgentBase', () => {
     let wukongAgent: WukongAgent;
+    let mockConfigService: ConfigService;
 
     beforeEach(() => {
-      wukongAgent = new WukongAgent();
+      mockConfigService = createMockConfigService();
+      wukongAgent = new WukongAgent(mockConfigService);
+      wukongAgent.onModuleInit(); // Trigger config loading
     });
 
     it('should build proper prompt with context', () => {

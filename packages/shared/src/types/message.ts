@@ -13,7 +13,9 @@ export type MessageType =
   | 'tool_result'   // Tool result
   | 'status'        // Status update
   | 'error'         // Error message
-  | 'stream';       // Streaming chunk
+  | 'stream'        // Streaming chunk
+  | 'task_assignment' // Task assignment notification
+  | 'chat_complete'; // Chat session complete
 
 /**
  * Base message interface

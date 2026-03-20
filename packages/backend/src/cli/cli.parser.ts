@@ -178,6 +178,13 @@ export class CliOutputParser {
   }
 
   /**
+   * Get remaining buffer content (for flush check)
+   */
+  getBuffer(): string {
+    return this.buffer;
+  }
+
+  /**
    * Get current session ID
    */
   getSessionId(): string | null {

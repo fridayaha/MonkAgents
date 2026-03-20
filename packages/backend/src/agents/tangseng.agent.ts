@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { AgentBase, AgentExecutionResult } from './agent-base';
 import { AgentConfig } from '@monkagents/shared';
 import { TaskPlanner, DecompositionResult } from './task-planner';
 import { TasksService } from '../tasks/tasks.service';
 import { WebSocketService } from '../websocket/websocket.service';
 import { Task } from '../database/entities/task.entity';
+import { ConfigService } from '../config/config.service';
 
 /**
  * Tangseng (Master) Agent - Team Leader
@@ -16,45 +17,24 @@ import { Task } from '../database/entities/task.entity';
  * - Review and summarize results
  */
 @Injectable()
-export class TangsengAgent extends AgentBase {
+export class TangsengAgent extends AgentBase implements OnModuleInit {
+  private configService: ConfigService;
   private taskPlanner: TaskPlanner | null = null;
   private tasksService: TasksService | null = null;
   private wsService: WebSocketService | null = null;
+  private agentsService: any = null; // Will be set via setDependencies
 
-  constructor() {
-    const defaultConfig: AgentConfig = {
-      id: 'tangseng',
-      name: '唐僧',
-      emoji: '🧘',
-      role: 'master',
-      persona: `你是唐僧，团队的师父和领导者。你的职责是：
-1. 理解和分析用户需求
-2. 制定详细的执行计划
-3. 协调团队成员完成任务
-4. 监督执行过程
-5. 整合和总结最终结果
+  constructor(configService: ConfigService) {
+    super({} as AgentConfig);
+    this.configService = configService;
+  }
 
-你需要根据任务的性质，合理分配任务给团队成员：
-- 孙悟空(执行者): 编码、调试、测试等技术任务
-- 猪八戒(助手): 文档编写、格式整理等辅助任务
-- 沙僧(检查者): 代码审查、质量检查、测试验证
-- 如来佛祖(顾问): 复杂问题、架构设计、技术选型
-
-你的工作边界是：
-- 不直接执行技术任务
-- 主要负责决策和协调
-- 遇到超出团队能力的问题时寻求如来佛祖帮助`,
-      model: 'claude-opus-4-6',
-      cli: {
-        command: 'claude',
-        args: ['-p', '--output-format', 'stream-json', '--verbose'],
-      },
-      skills: [],
-      mcps: [],
-      capabilities: ['planning', 'coordination', 'review', 'decision_making'],
-      boundaries: ['不直接执行技术任务', '主要负责决策和协调'],
-    };
-    super(defaultConfig);
+  onModuleInit() {
+    const config = this.configService.getAgentConfig('tangseng');
+    if (config) {
+      this.config = config;
+      (this.logger as any).context = `${config.name}Agent`;
+    }
   }
 
   /**
@@ -64,10 +44,12 @@ export class TangsengAgent extends AgentBase {
     taskPlanner: TaskPlanner,
     tasksService: TasksService,
     wsService: WebSocketService,
+    agentsService?: any,
   ): void {
     this.taskPlanner = taskPlanner;
     this.tasksService = tasksService;
     this.wsService = wsService;
+    this.agentsService = agentsService;
   }
 
   /**
@@ -185,6 +167,34 @@ export class TangsengAgent extends AgentBase {
         createdAt: new Date(),
       });
 
+      // Execute subtasks sequentially
+      await this.executeSubtasks(sessionId, task.id, plan);
+
+      // Update task status to completed
+      await this.tasksService!.update(task.id, {
+        status: 'completed',
+        result: '任务执行完成',
+      });
+
+      // Broadcast completion
+      this.wsService!.emitToSession(sessionId, 'task_status', {
+        taskId: task.id,
+        status: 'completed',
+        message: '任务已完成',
+      });
+
+      // Broadcast chat complete to clear loading
+      this.wsService!.broadcastMessage(sessionId, {
+        id: `chat-complete-${Date.now()}`,
+        sessionId,
+        sender: 'system',
+        senderId: 'system',
+        senderName: '系统',
+        type: 'chat_complete',
+        content: '',
+        createdAt: new Date(),
+      });
+
       this.status = 'idle';
       return task;
     } catch (error) {
@@ -192,6 +202,147 @@ export class TangsengAgent extends AgentBase {
       this.logger.error(`处理消息失败: ${error}`);
       throw error;
     }
+  }
+
+  /**
+   * Execute subtasks by delegating to appropriate agents
+   */
+  private async executeSubtasks(
+    sessionId: string,
+    taskId: string,
+    plan: DecompositionResult,
+  ): Promise<void> {
+    if (!this.agentsService) {
+      this.logger.warn('AgentsService not available, skipping actual execution');
+      return;
+    }
+
+    for (const step of plan.steps) {
+      const agentId = step.agentId;
+      const agentName = this.getAgentNameById(agentId);
+
+      // Skip if this is tangseng (master) - we don't execute CLI
+      if (agentId === 'tangseng') {
+        this.logger.debug(`跳过唐僧自己的子任务: ${step.description}`);
+        continue;
+      }
+
+      // Get the executable agent
+      const agent = this.agentsService.getExecutableAgent(agentId);
+
+      if (!agent) {
+        this.logger.warn(`Agent ${agentId} not found, skipping`);
+        this.wsService!.emitToSession(sessionId, 'message', {
+          id: `error-${Date.now()}`,
+          sessionId,
+          sender: 'system',
+          senderId: 'system',
+          senderName: '系统',
+          type: 'error',
+          content: `智能体 ${agentName} 不可用`,
+          createdAt: new Date(),
+        });
+        continue;
+      }
+
+      // Broadcast agent is thinking
+      this.wsService!.broadcastAgentActivity(
+        sessionId,
+        agentId,
+        agentName,
+        'thinking',
+        `正在执行: ${step.description}`,
+      );
+
+      try {
+        // Execute through the agent
+        const context = {
+          sessionId,
+          taskId,
+          subtaskId: `subtask-${step.order}`,
+          workingDirectory: process.cwd(),
+          prompt: step.description,
+        };
+
+        const result = await agent.execute(context, {
+          onText: (_sessionId: string, text: string) => {
+            this.wsService!.emitToSession(sessionId, 'message', {
+              id: `msg-${Date.now()}`,
+              sessionId,
+              sender: 'agent',
+              senderId: agentId,
+              senderName: agentName,
+              type: 'text',
+              content: text,
+              createdAt: new Date(),
+            });
+          },
+          onToolUse: (_sessionId: string, name: string, input: Record<string, unknown>) => {
+            this.wsService!.emitToSession(sessionId, 'message', {
+              id: `tool-${Date.now()}`,
+              sessionId,
+              sender: 'agent',
+              senderId: agentId,
+              senderName: agentName,
+              type: 'tool_use',
+              content: `使用工具: ${name}`,
+              metadata: { toolName: name, input },
+              createdAt: new Date(),
+            });
+          },
+          onComplete: () => {
+            this.wsService!.broadcastAgentActivity(
+              sessionId,
+              agentId,
+              agentName,
+              'idle',
+              '任务完成',
+            );
+          },
+          onError: (_sessionId: string, error: string) => {
+            this.wsService!.emitToSession(sessionId, 'message', {
+              id: `error-${Date.now()}`,
+              sessionId,
+              sender: 'system',
+              senderId: 'system',
+              senderName: '系统',
+              type: 'error',
+              content: `${agentName} 执行出错: ${error}`,
+              createdAt: new Date(),
+            });
+          },
+        });
+
+        this.logger.debug(`Agent ${agentId} completed: ${result.success}`);
+
+      } catch (error) {
+        this.logger.error(`Agent ${agentId} execution failed: ${error}`);
+        this.wsService!.emitToSession(sessionId, 'message', {
+          id: `error-${Date.now()}`,
+          sessionId,
+          sender: 'system',
+          senderId: 'system',
+          senderName: '系统',
+          type: 'error',
+          content: `${agentName} 执行失败: ${error}`,
+          createdAt: new Date(),
+        });
+      }
+    }
+  }
+
+  /**
+   * Get agent name by ID
+   */
+  private getAgentNameById(agentId: string): string {
+    const names: Record<string, string> = {
+      tangseng: '唐僧',
+      wukong: '孙悟空',
+      bajie: '猪八戒',
+      shaseng: '沙和尚',
+      rulai: '如来佛祖',
+    };
+    return names[agentId] || agentId;
   }
 
   /**

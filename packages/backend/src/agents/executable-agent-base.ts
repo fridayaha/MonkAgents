@@ -32,7 +32,17 @@ export interface AgentExecutionCallbacks {
 }
 
 /**
+ * Default configuration for CLI execution
+ */
+const DEFAULT_CONFIG = {
+  timeoutMs: 30 * 60 * 1000,        // 30 minutes default timeout
+  activityCheckInterval: 10000,      // Check activity every 10 seconds
+  gracefulShutdownMs: 5000,          // Wait 5 seconds after SIGTERM before SIGKILL
+};
+
+/**
  * Base class for executable agents that can run CLI commands
+ * Implements robust lifecycle management based on minimal-claude.js patterns
  */
 export abstract class ExecutableAgentBase {
   protected readonly logger: Logger;
@@ -41,6 +51,12 @@ export abstract class ExecutableAgentBase {
   protected currentProcess: ChildProcess | null = null;
   protected parser: CliOutputParser;
   protected wsService: WebSocketService | null = null;
+
+  // Activity tracking
+  protected lastActivity: number = Date.now();
+  protected activityCheckInterval: NodeJS.Timeout | null = null;
+  protected isShuttingDown: boolean = false;
+  protected timeoutMs: number = DEFAULT_CONFIG.timeoutMs;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -70,9 +86,24 @@ export abstract class ExecutableAgentBase {
   }
 
   /**
+   * Set timeout duration (in milliseconds)
+   */
+  setTimeout(timeoutMs: number): void {
+    this.timeoutMs = timeoutMs;
+  }
+
+  /**
    * Check if agent can handle the given task
    */
   abstract canHandle(task: string): boolean;
+
+  /**
+   * Get task priority weight (higher = more suitable)
+   * Override in subclasses for specific task matching
+   */
+  getPriorityWeight(_task: string): number {
+    return 0.5; // Default weight
+  }
 
   /**
    * Get the system prompt for this agent
@@ -107,9 +138,14 @@ export abstract class ExecutableAgentBase {
 
     this.logger.log(`执行任务: ${prompt.substring(0, 50)}...`);
     this.status = 'executing';
+    this.isShuttingDown = false;
+    this.lastActivity = Date.now();
 
     // Broadcast status
     this.broadcastAgentStatus(sessionId, 'executing', '正在执行任务...');
+
+    // Start activity-based timeout check
+    this.startActivityCheck(sessionId, callbacks);
 
     return new Promise((resolve, reject) => {
       const { command, args } = this.config.cli;
@@ -120,6 +156,7 @@ export abstract class ExecutableAgentBase {
       this.currentProcess = spawn(command, [...args, fullPrompt], {
         cwd: workingDirectory || process.cwd(),
         shell: true,
+        stdio: ['inherit', 'pipe', 'pipe'],  // inherit stdin, pipe stdout/stderr
         env: {
           ...process.env,
           ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
@@ -133,8 +170,9 @@ export abstract class ExecutableAgentBase {
       let error = '';
       let sessionIdFromCli: string | undefined;
 
-      // Handle stdout
+      // Handle stdout - updates activity
       this.currentProcess.stdout?.on('data', (data: Buffer) => {
+        this.updateActivity();
         const chunk = data.toString();
         output += chunk;
 
@@ -149,54 +187,169 @@ export abstract class ExecutableAgentBase {
         }
       });
 
-      // Handle stderr
+      // Handle stderr - also updates activity
       this.currentProcess.stderr?.on('data', (data: Buffer) => {
-        error += data.toString();
-        this.logger.warn(`CLI stderr: ${data.toString()}`);
+        this.updateActivity();
+        const text = data.toString();
+        error += text;
+        this.logger.debug(`CLI stderr: ${text.substring(0, 100)}...`);
       });
 
       // Handle process close
       this.currentProcess.on('close', (code: number) => {
-        this.currentProcess = null;
-        this.status = 'idle';
-
-        // Flush remaining output
-        const remainingEvents = this.parser.flush();
-        for (const event of remainingEvents) {
-          this.handleCliEvent(sessionId, event, callbacks);
-        }
-
-        const result: CliExecutionResult = {
-          success: code === 0,
-          sessionId: sessionIdFromCli,
-          output,
-          error: code !== 0 ? error || `Process exited with code ${code}` : undefined,
-        };
-
-        this.broadcastAgentStatus(sessionId, 'idle');
-
-        if (code === 0) {
-          callbacks?.onComplete?.(sessionId, result);
-          resolve(result);
-        } else {
-          callbacks?.onError?.(sessionId, result.error || 'Execution failed');
-          resolve(result);
-        }
-
-        this.parser.reset();
+        this.handleProcessClose(sessionId, code, output, error, sessionIdFromCli, callbacks, resolve);
       });
 
       // Handle process error
       this.currentProcess.on('error', (err: Error) => {
-        this.currentProcess = null;
-        this.status = 'idle';
-        this.logger.error(`CLI error: ${err.message}`);
-
-        callbacks?.onError?.(sessionId, err.message);
-        this.broadcastAgentStatus(sessionId, 'idle');
-        reject(err);
+        this.handleProcessError(sessionId, err, callbacks, reject);
       });
     });
+  }
+
+  /**
+   * Start activity-based timeout check
+   */
+  protected startActivityCheck(
+    sessionId: string,
+    callbacks?: AgentExecutionCallbacks,
+  ): void {
+    this.activityCheckInterval = setInterval(() => {
+      if (this.isShuttingDown) return;
+
+      const idleTime = Date.now() - this.lastActivity;
+      if (idleTime > this.timeoutMs) {
+        this.logger.warn(`Timeout: ${this.timeoutMs / 60000} minutes without activity`);
+        this.gracefulShutdown(sessionId, 'timeout', callbacks);
+      }
+    }, DEFAULT_CONFIG.activityCheckInterval);
+  }
+
+  /**
+   * Stop activity check interval
+   */
+  protected stopActivityCheck(): void {
+    if (this.activityCheckInterval) {
+      clearInterval(this.activityCheckInterval);
+      this.activityCheckInterval = null;
+    }
+  }
+
+  /**
+   * Update activity timestamp
+   */
+  protected updateActivity(): void {
+    this.lastActivity = Date.now();
+  }
+
+  /**
+   * Handle process close
+   */
+  protected handleProcessClose(
+    sessionId: string,
+    code: number,
+    output: string,
+    error: string,
+    sessionIdFromCli: string | undefined,
+    callbacks: AgentExecutionCallbacks | undefined,
+    resolve: (result: CliExecutionResult) => void,
+  ): void {
+    this.stopActivityCheck();
+    this.currentProcess = null;
+    this.status = 'idle';
+
+    // Flush remaining output
+    const remainingEvents = this.parser.flush();
+    for (const event of remainingEvents) {
+      this.handleCliEvent(sessionId, event, callbacks);
+    }
+
+    // Process remaining buffer
+    if (this.parser.getBuffer().trim()) {
+      try {
+        const message = JSON.parse(this.parser.getBuffer().trim());
+        const events = this.parser.parseMessage(message);
+        for (const event of events) {
+          this.handleCliEvent(sessionId, event, callbacks);
+        }
+      } catch {
+        // Ignore incomplete JSON
+      }
+    }
+
+    const result: CliExecutionResult = {
+      success: code === 0,
+      sessionId: sessionIdFromCli,
+      output,
+      error: code !== 0 ? error || `Process exited with code ${code}` : undefined,
+    };
+
+    this.broadcastAgentStatus(sessionId, 'idle');
+
+    if (code === 0) {
+      callbacks?.onComplete?.(sessionId, result);
+    } else {
+      callbacks?.onError?.(sessionId, result.error || 'Execution failed');
+    }
+
+    this.parser.reset();
+    resolve(result);
+  }
+
+  /**
+   * Handle process error
+   */
+  protected handleProcessError(
+    sessionId: string,
+    err: Error,
+    callbacks: AgentExecutionCallbacks | undefined,
+    reject: (error: Error) => void,
+  ): void {
+    this.stopActivityCheck();
+    this.currentProcess = null;
+    this.status = 'idle';
+    this.logger.error(`CLI error: ${err.message}`);
+
+    callbacks?.onError?.(sessionId, err.message);
+    this.broadcastAgentStatus(sessionId, 'idle');
+    reject(err);
+  }
+
+  /**
+   * Graceful shutdown: SIGTERM first, then SIGKILL after grace period
+   */
+  protected gracefulShutdown(
+    sessionId: string,
+    reason: string,
+    callbacks?: AgentExecutionCallbacks,
+  ): void {
+    if (this.isShuttingDown) return;
+    this.isShuttingDown = true;
+
+    this.logger.log(`Initiating graceful shutdown: ${reason}`);
+    this.stopActivityCheck();
+
+    if (!this.currentProcess || !this.currentProcess.pid) {
+      return;
+    }
+
+    // First try SIGTERM for graceful termination
+    this.currentProcess.kill('SIGTERM');
+
+    // Force kill after grace period
+    const forceKillTimer = setTimeout(() => {
+      if (this.currentProcess?.pid) {
+        this.logger.warn('Force killing process after SIGTERM timeout');
+        this.currentProcess.kill('SIGKILL');
+      }
+    }, DEFAULT_CONFIG.gracefulShutdownMs);
+
+    // Ensure timer doesn't prevent process exit
+    forceKillTimer.unref();
+
+    // Broadcast status
+    this.broadcastAgentStatus(sessionId, 'idle');
+    callbacks?.onError?.(sessionId, `Execution ${reason}`);
   }
 
   /**
@@ -236,9 +389,22 @@ export abstract class ExecutableAgentBase {
    * Cancel current execution
    */
   cancel(): void {
-    if (this.currentProcess) {
+    if (this.currentProcess && this.status === 'executing') {
       this.logger.log('Cancelling execution');
+      // Use graceful shutdown
+      this.isShuttingDown = true;
+      this.stopActivityCheck();
+
+      // SIGTERM first
       this.currentProcess.kill('SIGTERM');
+
+      // Force kill after grace period
+      setTimeout(() => {
+        if (this.currentProcess?.pid) {
+          this.currentProcess.kill('SIGKILL');
+        }
+      }, DEFAULT_CONFIG.gracefulShutdownMs);
+
       this.currentProcess = null;
       this.status = 'idle';
       this.parser.reset();

@@ -10,7 +10,17 @@ import { CliOutputParser } from './cli.parser';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Manages a single CLI session
+ * Configuration for CLI session
+ */
+const DEFAULT_CONFIG = {
+  timeoutMs: 30 * 60 * 1000,        // 30 minutes default timeout
+  activityCheckInterval: 10000,      // Check activity every 10 seconds
+  gracefulShutdownMs: 5000,          // Wait 5 seconds after SIGTERM before SIGKILL
+};
+
+/**
+ * Manages a single CLI session with robust lifecycle management
+ * Based on minimal-claude.js patterns
  */
 export class CliSession {
   private readonly logger: Logger;
@@ -21,9 +31,14 @@ export class CliSession {
   private state: CliSessionState;
   private options: CliExecutionOptions;
   private outputBuffer: string = '';
+  private stderrBuffer: string = '';
   private resolveExecution: ((result: CliExecutionResult) => void) | null = null;
   private rejectExecution: ((error: Error) => void) | null = null;
-  private timeoutHandle: NodeJS.Timeout | null = null;
+
+  // Activity tracking
+  private lastActivity: number = Date.now();
+  private activityCheckInterval: NodeJS.Timeout | null = null;
+  private isShuttingDown: boolean = false;
 
   constructor(agentId: string, options: CliExecutionOptions) {
     this.id = uuidv4();
@@ -47,6 +62,7 @@ export class CliSession {
   getAgentId(): string {
     return this.agentId;
   }
+
   getId(): string {
     return this.id;
   }
@@ -70,18 +86,16 @@ export class CliSession {
       this.resolveExecution = resolve;
       this.rejectExecution = reject;
 
-      // Set timeout if specified
-      if (this.options.timeout) {
-        this.timeoutHandle = setTimeout(() => {
-          this.handleError(new Error('Execution timeout'));
-        }, this.options.timeout);
-      }
+      // Start activity-based timeout check
+      this.startActivityCheck();
 
       this.logger.debug(`Starting CLI: ${command} ${args.join(' ')}`);
 
+      // Spawn process with shell: true for command flexibility
       this.process = spawn(command, [...args, this.options.prompt], {
         cwd: workingDirectory || process.cwd(),
         shell: true,
+        stdio: ['inherit', 'pipe', 'pipe'],  // inherit stdin, pipe stdout/stderr
         env: {
           ...process.env,
           // Pass through environment for API configuration
@@ -95,12 +109,12 @@ export class CliSession {
       this.state.status = 'running';
       this.state.pid = this.process.pid || undefined;
 
-      // Handle stdout
+      // Handle stdout - updates activity and parses events
       this.process.stdout?.on('data', (data: Buffer) => {
         this.handleStdout(data);
       });
 
-      // Handle stderr
+      // Handle stderr - also updates activity
       this.process.stderr?.on('data', (data: Buffer) => {
         this.handleStderr(data);
       });
@@ -118,10 +132,36 @@ export class CliSession {
   }
 
   /**
+   * Start activity-based timeout check
+   * Unlike simple timeout, this only triggers if no activity for the duration
+   */
+  private startActivityCheck(): void {
+    const timeoutMs = this.options.timeout || DEFAULT_CONFIG.timeoutMs;
+
+    this.activityCheckInterval = setInterval(() => {
+      if (this.isShuttingDown) return;
+
+      const idleTime = Date.now() - this.lastActivity;
+      if (idleTime > timeoutMs) {
+        this.logger.warn(`Timeout: ${timeoutMs / 60000} minutes without activity`);
+        this.gracefulShutdown('timeout');
+      }
+    }, DEFAULT_CONFIG.activityCheckInterval);
+  }
+
+  /**
+   * Update activity timestamp (called on any stdout/stderr data)
+   */
+  private updateActivity(): void {
+    this.lastActivity = Date.now();
+    this.state.lastActivity = new Date();
+  }
+
+  /**
    * Handle stdout data
    */
   private handleStdout(data: Buffer): void {
-    this.state.lastActivity = new Date();
+    this.updateActivity();
     const chunk = data.toString();
     this.outputBuffer += chunk;
 
@@ -135,11 +175,14 @@ export class CliSession {
   }
 
   /**
-   * Handle stderr data
+   * Handle stderr data - also updates activity
    */
   private handleStderr(data: Buffer): void {
+    this.updateActivity();
     const text = data.toString();
-    this.logger.warn(`CLI stderr: ${text}`);
+    this.stderrBuffer += text;
+    this.logger.debug(`CLI stderr: ${text.substring(0, 100)}...`);
+
     // Some useful info might come through stderr
     this.options.onError?.(text);
   }
@@ -149,7 +192,6 @@ export class CliSession {
    */
   private handleEvent(event: CliOutputEvent): void {
     this.state.messageCount++;
-    this.state.lastActivity = new Date();
 
     // Update session ID if received
     if (event.sessionId) {
@@ -188,10 +230,10 @@ export class CliSession {
   }
 
   /**
-   * Handle completion event
+   * Handle completion event from parser
    */
   private handleComplete(event: CliOutputEvent): void {
-    this.state.status = 'idle';
+    this.state.status = 'completed';  // Mark as completed (not just idle)
 
     // Update token usage if available
     if (event.metadata?.tokensUsed) {
@@ -227,25 +269,42 @@ export class CliSession {
   private handleClose(code: number): void {
     this.logger.debug(`Process closed with code: ${code}`);
 
+    // Stop activity check
+    this.stopActivityCheck();
+
     // Flush remaining buffer
     const remainingEvents = this.parser.flush();
     for (const event of remainingEvents) {
       this.handleEvent(event);
     }
 
-    if (code !== 0 && this.state.status === 'running') {
-      // Process exited with error before completion
+    // Process buffer if still has data
+    if (this.parser.getBuffer().trim()) {
+      try {
+        const message = JSON.parse(this.parser.getBuffer().trim());
+        const events = this.parser.parseMessage(message);
+        for (const event of events) {
+          this.handleEvent(event);
+        }
+      } catch {
+        // Ignore incomplete JSON
+      }
+    }
+
+    // Only resolve if not already resolved (by complete event or error)
+    if (this.state.status === 'running' || this.state.status === 'starting') {
       const result: CliExecutionResult = {
-        success: false,
+        success: code === 0,
         sessionId: this.state.id,
-        error: `Process exited with code ${code}`,
         output: this.outputBuffer,
+        error: code !== 0 ? this.stderrBuffer || `Process exited with code ${code}` : undefined,
       };
       this.cleanup();
       this.resolveExecution?.(result);
     }
 
     this.state.status = 'closed';
+    this.process = null;
   }
 
   /**
@@ -254,29 +313,68 @@ export class CliSession {
   private handleError(error: Error): void {
     this.logger.error(`CLI error: ${error.message}`);
     this.state.status = 'error';
+    this.stopActivityCheck();
     this.cleanup();
     this.rejectExecution?.(error);
     this.options.onError?.(error.message);
   }
 
   /**
-   * Cancel execution
+   * Graceful shutdown: SIGTERM first, then SIGKILL after grace period
+   */
+  private gracefulShutdown(reason: string): void {
+    if (this.isShuttingDown) return;
+    this.isShuttingDown = true;
+
+    this.logger.log(`Initiating graceful shutdown: ${reason}`);
+    this.stopActivityCheck();
+
+    if (!this.process || !this.process.pid) {
+      return;
+    }
+
+    // First try SIGTERM for graceful termination
+    this.process.kill('SIGTERM');
+
+    // Force kill after grace period
+    const forceKillTimer = setTimeout(() => {
+      if (this.process?.pid) {
+        this.logger.warn('Force killing process after SIGTERM timeout');
+        this.process.kill('SIGKILL');
+      }
+    }, DEFAULT_CONFIG.gracefulShutdownMs);
+
+    // Ensure timer doesn't prevent process exit
+    forceKillTimer.unref();
+
+    // Resolve with cancellation result
+    const result: CliExecutionResult = {
+      success: false,
+      sessionId: this.state.id,
+      error: `Execution ${reason}`,
+      output: this.outputBuffer,
+    };
+
+    this.cleanup();
+    this.resolveExecution?.(result);
+  }
+
+  /**
+   * Cancel execution (user-initiated)
    */
   cancel(): void {
     if (this.process && this.state.status === 'running') {
-      this.logger.log('Cancelling execution');
-      this.process.kill('SIGTERM');
-      this.state.status = 'closed';
+      this.gracefulShutdown('cancelled by user');
+    }
+  }
 
-      const result: CliExecutionResult = {
-        success: false,
-        sessionId: this.state.id,
-        error: 'Cancelled by user',
-        output: this.outputBuffer,
-      };
-
-      this.cleanup();
-      this.resolveExecution?.(result);
+  /**
+   * Stop activity check interval
+   */
+  private stopActivityCheck(): void {
+    if (this.activityCheckInterval) {
+      clearInterval(this.activityCheckInterval);
+      this.activityCheckInterval = null;
     }
   }
 
@@ -284,11 +382,9 @@ export class CliSession {
    * Cleanup resources
    */
   private cleanup(): void {
-    if (this.timeoutHandle) {
-      clearTimeout(this.timeoutHandle);
-      this.timeoutHandle = null;
-    }
+    this.stopActivityCheck();
     this.process = null;
+    this.parser.reset();
   }
 
   /**

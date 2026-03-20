@@ -75,6 +75,26 @@ class App {
       this.createSession();
     });
 
+    // Browse directory button
+    document.getElementById('browse-dir-btn')?.addEventListener('click', () => {
+      document.getElementById('dir-picker')?.click();
+    });
+
+    // Directory picker change
+    document.getElementById('dir-picker')?.addEventListener('change', (e) => {
+      const files = e.target.files;
+      if (files && files.length > 0) {
+        // Get the directory path from the first file's webkitRelativePath
+        const firstFile = files[0];
+        const relativePath = firstFile.webkitRelativePath;
+        const dirName = relativePath.split('/')[0];
+
+        // Try to get the full path if available
+        const fullPath = firstFile.path || dirName;
+        document.getElementById('working-dir-input').value = fullPath;
+      }
+    });
+
     // Send message
     document.getElementById('send-btn').addEventListener('click', () => {
       this.sendMessage();
@@ -154,13 +174,13 @@ class App {
       const statusFilter = document.getElementById('task-status-filter')?.value || '';
       const sessionFilter = document.getElementById('task-session-filter')?.value || '';
 
-      let url = '/api/tasks';
+      let endpoint = '/tasks';
       const params = [];
       if (statusFilter) params.push(`status=${statusFilter}`);
       if (sessionFilter) params.push(`sessionId=${sessionFilter}`);
-      if (params.length > 0) url += '?' + params.join('&');
+      if (params.length > 0) endpoint += '?' + params.join('&');
 
-      this.tasks = await api.request(url);
+      this.tasks = await api.request(endpoint);
       this.renderTasks();
     } catch (error) {
       console.error('Failed to load tasks:', error);
@@ -170,7 +190,7 @@ class App {
 
   async loadScheduledTasks() {
     try {
-      this.scheduledTasks = await api.request('/api/scheduled-tasks');
+      this.scheduledTasks = await api.request('/scheduled-tasks');
       this.renderScheduledTasks();
     } catch (error) {
       console.error('Failed to load scheduled tasks:', error);
@@ -511,6 +531,20 @@ class App {
     this.renderMessages();
   }
 
+  removeLastStatusMessage() {
+    if (!this.currentSession?.messages) return;
+
+    // Find and remove the last status message (loading indicator)
+    const messages = this.currentSession.messages;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].type === 'status') {
+        messages.splice(i, 1);
+        break;
+      }
+    }
+    this.renderMessages();
+  }
+
   // ==================== Scheduled Tasks ====================
 
   async createScheduledTask() {
@@ -525,7 +559,7 @@ class App {
     }
 
     try {
-      await api.request('/api/scheduled-tasks', {
+      await api.request('/scheduled-tasks', {
         method: 'POST',
         body: JSON.stringify({
           title,
@@ -658,6 +692,11 @@ class App {
     });
 
     wsClient.on('message', (message) => {
+      // Handle chat_complete - remove the status loading message
+      if (message.type === 'chat_complete') {
+        this.removeLastStatusMessage();
+        return;
+      }
       this.addMessage(message);
     });
 

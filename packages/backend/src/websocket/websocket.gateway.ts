@@ -14,6 +14,7 @@ import { WebSocketService } from './websocket.service';
 import { TangsengAgent } from '../agents/tangseng.agent';
 import { TasksService } from '../tasks/tasks.service';
 import { TaskPlanner } from '../agents/task-planner';
+import { AgentsService } from '../agents/agents.service';
 
 @WsGateway({
   cors: {
@@ -34,6 +35,7 @@ export class WebSocketGateway
     private readonly tangsengAgent: TangsengAgent,
     private readonly tasksService: TasksService,
     private readonly taskPlanner: TaskPlanner,
+    private readonly agentsService: AgentsService,
   ) {}
 
   afterInit(server: Server) {
@@ -47,6 +49,7 @@ export class WebSocketGateway
       this.taskPlanner,
       this.tasksService,
       this.webSocketService,
+      this.agentsService,
     );
     this.logger.log('WebSocket Gateway initialized');
   }

@@ -63,7 +63,7 @@ describe('AgentMentionService', () => {
       expect(service.resolveAgentId('孙悟空')).toBe('wukong');
       expect(service.resolveAgentId('悟空')).toBe('wukong');
       expect(service.resolveAgentId('猪八戒')).toBe('bajie');
-      expect(service.resolveAgentId('沙僧')).toBe('shaseng');
+      expect(service.resolveAgentId('沙和尚')).toBe('shaseng');
       expect(service.resolveAgentId('如来')).toBe('rulai');
       expect(service.resolveAgentId('唐僧')).toBe('tangseng');
     });
@@ -92,7 +92,7 @@ describe('AgentMentionService', () => {
     it('should return correct Chinese names', () => {
       expect(service.getAgentName('wukong')).toBe('孙悟空');
       expect(service.getAgentName('bajie')).toBe('猪八戒');
-      expect(service.getAgentName('shaseng')).toBe('沙僧');
+      expect(service.getAgentName('shaseng')).toBe('沙和尚');
       expect(service.getAgentName('rulai')).toBe('如来佛祖');
       expect(service.getAgentName('tangseng')).toBe('唐僧');
     });
@@ -128,14 +128,14 @@ describe('AgentMentionService', () => {
     it('should build instruction for multiple agents', () => {
       const mentions = [
         { agentId: 'wukong', agentName: '孙悟空', position: { start: 0, end: 4 } },
-        { agentId: 'shaseng', agentName: '沙僧', position: { start: 5, end: 9 } },
+        { agentId: 'shaseng', agentName: '沙和尚', position: { start: 5, end: 9 } },
       ];
 
       const result = service.buildCollaborationInstruction(mentions, '协作任务');
 
       expect(result).toContain('协作任务');
       expect(result).toContain('孙悟空');
-      expect(result).toContain('沙僧');
+      expect(result).toContain('沙和尚');
     });
   });
 

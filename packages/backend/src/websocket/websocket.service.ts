@@ -5,6 +5,7 @@ import { TangsengAgent } from '../agents/tangseng.agent';
 import { TasksService } from '../tasks/tasks.service';
 import { AgentMentionService, ParsedMessage } from '../agents/agent-mention.service';
 import { AgentsService } from '../agents/agents.service';
+import { ChatService } from '../agents/chat.service';
 
 /**
  * Service for WebSocket communication and task coordination
@@ -23,6 +24,7 @@ export class WebSocketService implements OnModuleInit {
   constructor(
     private readonly mentionService: AgentMentionService,
     private readonly agentsService: AgentsService,
+    private readonly chatService: ChatService,
   ) {}
 
   onModuleInit() {
@@ -100,10 +102,16 @@ export class WebSocketService implements OnModuleInit {
     }
 
     try {
-      // Route based on mentions
+      // Determine message type and route accordingly
       if (parsedMessage.hasMentions && parsedMessage.primaryAgent) {
         // Direct routing to mentioned agent(s)
         await this.routeToSpecificAgent(sessionId, parsedMessage);
+      } else if (this.chatService.isChatMessage(content, parsedMessage)) {
+        // Group chat mode - all agents respond based on their personality
+        await this.chatService.handleChatMessage(sessionId, content, this);
+      } else if (this.chatService.isTaskRequest(content)) {
+        // Task mode - Tangseng decomposes and assigns tasks
+        await this.handleTaskRequest(sessionId, content);
       } else {
         // Default routing through Tangseng (master) agent
         const task = await this.tangsengAgent.processUserMessage(sessionId, content);
@@ -122,10 +130,79 @@ export class WebSocketService implements OnModuleInit {
   }
 
   /**
+   * Handle task request - Tangseng decomposes and assigns
+   */
+  private async handleTaskRequest(sessionId: string, content: string): Promise<void> {
+    this.logger.log(`Handling task request: ${content}`);
+
+    // Broadcast that Tangseng is thinking
+    this.broadcastAgentActivity(
+      sessionId,
+      'tangseng',
+      '唐僧',
+      'thinking',
+      '正在分析任务...',
+    );
+
+    // Generate task breakdown
+    const { assignments } = this.chatService.generateTaskBreakdown(content);
+
+    // Generate Tangseng's response
+    const tangsengResponse = this.chatService.generateTangsengTaskResponse(content, assignments);
+
+    // Broadcast Tangseng's analysis
+    this.broadcastMessage(sessionId, {
+      id: `msg-${Date.now()}-tangseng`,
+      sessionId,
+      sender: 'agent',
+      senderId: 'tangseng',
+      senderName: '唐僧',
+      type: 'text',
+      content: tangsengResponse,
+      createdAt: new Date(),
+    });
+
+    // Broadcast Tangseng idle
+    this.broadcastAgentActivity(
+      sessionId,
+      'tangseng',
+      '唐僧',
+      'idle',
+    );
+
+    // Create task records and potentially execute
+    // For now, just broadcast the task assignments
+    for (const assignment of assignments) {
+      this.broadcastMessage(sessionId, {
+        id: `task-${Date.now()}-${assignment.agentId}`,
+        sessionId,
+        sender: 'system',
+        senderId: 'system',
+        senderName: '系统',
+        type: 'task_assignment',
+        content: `任务已分配给 @${assignment.agentName}`,
+        metadata: {
+          taskId: `task-${Date.now()}`,
+          agentId: assignment.agentId,
+          task: assignment.task,
+          priority: assignment.priority,
+        },
+        createdAt: new Date(),
+      });
+    }
+  }
+
+  /**
    * Route message to specific agent(s) mentioned
    */
   private async routeToSpecificAgent(sessionId: string, parsedMessage: ParsedMessage): Promise<void> {
     const primaryAgentId = parsedMessage.primaryAgent!;
+
+    // Special handling for Tangseng (master) - he's a coordinator, not an executor
+    if (primaryAgentId === 'tangseng') {
+      await this.tangsengAgent?.processUserMessage(sessionId, parsedMessage.cleanedContent);
+      return;
+    }
 
     // Get agent status
     const agentStatus = this.agentsService.getAgentsStatusSummary()[primaryAgentId];

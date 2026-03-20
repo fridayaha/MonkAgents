@@ -1,5 +1,4 @@
 {
-  "bypassPermissions": true,
   "permissions": {
     "allow": [
       "Bash(git init:*)",
@@ -7,7 +6,18 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
+      "Bash(pwd:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(curl:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(wmic process:*)"
     ]
-  }
+  },
+  "bypassPermissions": true
 }

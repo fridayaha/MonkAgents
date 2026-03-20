@@ -92,7 +92,7 @@ export interface CliOutputEvent {
 export interface CliSessionState {
   id: string;
   agentId: string;
-  status: 'starting' | 'running' | 'idle' | 'error' | 'closed';
+  status: 'starting' | 'running' | 'idle' | 'completed' | 'error' | 'closed';
   pid?: number;
   startedAt: Date;
   lastActivity: Date;

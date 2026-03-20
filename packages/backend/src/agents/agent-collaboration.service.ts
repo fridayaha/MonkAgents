@@ -118,7 +118,7 @@ export class AgentCollaborationService {
     // 分析任务，决定需要哪些智能体
     const taskLower = task.toLowerCase();
 
-    // 检查是否需要审查（沙僧）
+    // 检查是否需要审查（沙和尚）
     if (this.needsReview(taskLower)) {
       const result = this.agentsService.selectBestAgent('审查代码质量');
       assignments.push({ ...result, task: '代码审查和质量检查' });

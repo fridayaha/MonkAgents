@@ -71,7 +71,7 @@ export const DEFAULT_AGENTS: Partial<AgentConfig>[] = [
   },
   {
     id: AGENT_IDS.SHASENG,
-    name: '沙僧',
+    name: '沙和尚',
     emoji: '🧑‍🦲',
     role: 'inspector',
     model: DEFAULT_AGENT_MODELS.inspector,

@@ -11,7 +11,7 @@ configs/
     ├── tangseng.yaml    # 唐僧配置
     ├── wukong.yaml      # 孙悟空配置
     ├── bajie.yaml       # 猪八戒配置
-    ├── shaseng.yaml     # 沙僧配置
+    ├── shaseng.yaml     # 沙和尚配置
     └── rulai.yaml       # 如来佛祖配置
 ```
 

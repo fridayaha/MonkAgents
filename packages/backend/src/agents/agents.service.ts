@@ -206,7 +206,7 @@ export class AgentsService implements OnModuleInit {
     const names: Record<string, string> = {
       wukong: '孙悟空',
       bajie: '猪八戒',
-      shaseng: '沙僧',
+      shaseng: '沙和尚',
       rulai: '如来佛祖',
     };
     return names[agentId] || agentId;
@@ -232,7 +232,7 @@ export class AgentsService implements OnModuleInit {
     const reasons: Record<string, string> = {
       wukong: '孙悟空擅长代码编写、调试和技术任务',
       bajie: '猪八戒擅长文档编写、格式整理和辅助任务',
-      shaseng: '沙僧擅长代码审查、测试和质量保证',
+      shaseng: '沙和尚擅长代码审查、测试和质量保证',
       rulai: '如来佛祖擅长架构设计、技术咨询和复杂问题',
     };
 
@@ -248,10 +248,10 @@ export class AgentsService implements OnModuleInit {
 
     if (agentId === 'shaseng') {
       if (task.includes('审查') || task.includes('review')) {
-        return '沙僧最适合代码审查任务';
+        return '沙和尚最适合代码审查任务';
       }
       if (task.includes('测试') || task.includes('test')) {
-        return '沙僧最适合测试验证任务';
+        return '沙和尚最适合测试验证任务';
       }
     }
 

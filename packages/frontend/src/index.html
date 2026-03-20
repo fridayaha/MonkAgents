@@ -67,7 +67,7 @@
                 <option value="tangseng">🧘 唐僧</option>
                 <option value="wukong">🐵 孙悟空</option>
                 <option value="bajie">🐷 猪八戒</option>
-                <option value="shaseng">🧑‍🦲 沙僧</option>
+                <option value="shaseng">🧑‍🦲 沙和尚</option>
                 <option value="rulai">🧘 如来佛祖</option>
               </select>
               <button id="send-btn" class="btn btn-primary">发送</button>
@@ -145,7 +145,12 @@
       </div>
       <div class="form-group">
         <label for="working-dir-input">工作目录</label>
-        <input type="text" id="working-dir-input" placeholder="输入工作目录路径" value=".">
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="working-dir-input" placeholder="选择或输入工作目录路径" value="." readonly style="flex: 1; background-color: #f5f5f5;">
+          <button id="browse-dir-btn" class="btn btn-secondary" type="button">📁 浏览</button>
+        </div>
+        <input type="file" id="dir-picker" webkitdirectory style="display: none;">
+        <small style="color: var(--text-muted); font-size: 0.75rem;">点击浏览按钮选择项目目录</small>
       </div>
       <div class="modal-actions">
         <button id="cancel-modal-btn" class="btn btn-secondary">取消</button>

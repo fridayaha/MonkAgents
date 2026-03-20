@@ -278,7 +278,7 @@ export class TaskPlanner {
     const names: Record<AgentRole, string> = {
       master: '唐僧',
       executor: '孙悟空',
-      inspector: '沙僧',
+      inspector: '沙和尚',
       assistant: '猪八戒',
       advisor: '如来佛祖',
     };

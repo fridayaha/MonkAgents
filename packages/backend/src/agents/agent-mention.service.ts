@@ -45,9 +45,9 @@ export class AgentMentionService {
     ['八戒', 'bajie'],
     ['老猪', 'bajie'],
 
-    // 沙僧
+    // 沙和尚
     ['shaseng', 'shaseng'],
-    ['沙僧', 'shaseng'],
+    ['沙和尚', 'shaseng'],
     ['沙师弟', 'shaseng'],
     ['老沙', 'shaseng'],
 
@@ -118,7 +118,7 @@ export class AgentMentionService {
     const names: Record<string, string> = {
       wukong: '孙悟空',
       bajie: '猪八戒',
-      shaseng: '沙僧',
+      shaseng: '沙和尚',
       rulai: '如来佛祖',
       tangseng: '唐僧',
     };

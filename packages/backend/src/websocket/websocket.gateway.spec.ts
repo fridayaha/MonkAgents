@@ -4,6 +4,7 @@ import { WebSocketService } from './websocket.service';
 import { TangsengAgent } from '../agents/tangseng.agent';
 import { TasksService } from '../tasks/tasks.service';
 import { TaskPlanner } from '../agents/task-planner';
+import { AgentsService } from '../agents/agents.service';
 import { Socket } from 'socket.io';
 
 describe('WebSocketGateway', () => {
@@ -40,6 +41,11 @@ describe('WebSocketGateway', () => {
     decomposeTask: jest.fn(),
   };
 
+  const mockAgentsService = {
+    getExecutableAgent: jest.fn(),
+    selectBestAgent: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -61,6 +67,10 @@ describe('WebSocketGateway', () => {
         {
           provide: TaskPlanner,
           useValue: mockTaskPlanner,
+        },
+        {
+          provide: AgentsService,
+          useValue: mockAgentsService,
         },
       ],
     }).compile();

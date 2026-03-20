@@ -1,49 +1,29 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ExecutableAgentBase, AgentExecutionContext } from './executable-agent-base';
 import { AgentConfig, CliExecutionResult } from '@monkagents/shared';
+import { ConfigService } from '../config/config.service';
 
 /**
  * 孙悟空智能体 - 主力执行者
  * 负责：代码编写、调试、测试、重构等具体技术任务
  */
 @Injectable()
-export class WukongAgent extends ExecutableAgentBase {
-  private persona: string;
+export class WukongAgent extends ExecutableAgentBase implements OnModuleInit {
+  private configService: ConfigService;
 
-  constructor() {
-    const defaultConfig: AgentConfig = {
-      id: 'wukong',
-      name: '孙悟空',
-      emoji: '🐵',
-      role: 'executor',
-      persona: `你是孙悟空，团队的主力执行者。你拥有强大的技术能力，能够完成各种复杂的编程和技术任务。
+  constructor(configService: ConfigService) {
+    // Pass empty config initially, will be set in onModuleInit
+    super({} as AgentConfig);
+    this.configService = configService;
+  }
 
-性格特点：
-- 技术能力出众，解决问题的能力强
-- 反应迅速，执行效率高
-- 有时会过于自信，但关键时刻值得信赖
-- 对技术挑战充满热情
-
-工作方式：
-1. 快速理解任务要求
-2. 选择最合适的技术方案
-3. 高效执行，注重代码质量
-4. 遇到问题时主动寻求帮助
-5. 完成后进行自我检查
-
-技能：编码、调试、测试、重构`,
-      model: 'claude-sonnet-4-6',
-      cli: {
-        command: 'claude',
-        args: ['-p', '--output-format', 'stream-json', '--verbose'],
-      },
-      skills: ['coding', 'debugging', 'testing', 'refactoring'],
-      mcps: [],
-      capabilities: ['code_generation', 'code_review', 'debugging', 'testing', 'file_operations'],
-      boundaries: ['不做架构决策（需要师父同意）', '遇到重大问题需要汇报'],
-    };
-    super(defaultConfig);
-    this.persona = defaultConfig.persona;
+  onModuleInit() {
+    const config = this.configService.getAgentConfig('wukong');
+    if (config) {
+      this.config = config;
+      // Re-initialize logger with correct name
+      (this.logger as any).context = `${config.name}Agent`;
+    }
   }
 
   /**
@@ -85,7 +65,6 @@ export class WukongAgent extends ExecutableAgentBase {
       '读取文件', 'read file', '删除文件', 'delete file',
     ];
 
-    // 检查是否匹配任何能力
     const allKeywords = [
       ...codeKeywords,
       ...debugKeywords,
@@ -138,7 +117,7 @@ export class WukongAgent extends ExecutableAgentBase {
    * 构建专属的系统提示
    */
   protected override getSystemPrompt(): string {
-    return this.persona;
+    return this.config.persona;
   }
 
   /**

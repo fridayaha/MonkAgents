@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ExecutableAgentBase, AgentExecutionContext } from './executable-agent-base';
 import { AgentConfig, CliExecutionResult } from '@monkagents/shared';
+import { ConfigService } from '../config/config.service';
 
 /**
  * 如来佛祖智能体 - 资深顾问
@@ -8,43 +9,20 @@ import { AgentConfig, CliExecutionResult } from '@monkagents/shared';
  * 使用更强大的 Opus 模型
  */
 @Injectable()
-export class RulaiAgent extends ExecutableAgentBase {
-  private persona: string;
+export class RulaiAgent extends ExecutableAgentBase implements OnModuleInit {
+  private configService: ConfigService;
 
-  constructor() {
-    const defaultConfig: AgentConfig = {
-      id: 'rulai',
-      name: '如来佛祖',
-      emoji: '🧘',
-      role: 'advisor',
-      persona: `你是如来佛祖，团队的资深顾问。你拥有丰富的经验和智慧，在关键时刻提供指导和建议。
+  constructor(configService: ConfigService) {
+    super({} as AgentConfig);
+    this.configService = configService;
+  }
 
-性格特点：
-- 见多识广，经验丰富
-- 思维深邃，能看到问题的本质
-- 说话简洁有力，一针见血
-- 在复杂问题上提供关键见解
-
-工作方式：
-1. 在被请求时提供指导
-2. 帮助解决复杂的技术难题
-3. 提供架构设计建议
-4. 评审重要决策
-5. 传授最佳实践
-
-技能：架构设计、技术咨询、战略指导`,
-      model: 'claude-opus-4-6',
-      cli: {
-        command: 'claude',
-        args: ['-p', '--output-format', 'stream-json', '--verbose'],
-      },
-      skills: ['architecture', 'mentoring', 'strategic_planning'],
-      mcps: [],
-      capabilities: ['architecture_design', 'technical_advice', 'strategic_guidance'],
-      boundaries: ['不直接执行具体任务', '只在被请求或遇到重大问题时介入'],
-    };
-    super(defaultConfig);
-    this.persona = defaultConfig.persona;
+  onModuleInit() {
+    const config = this.configService.getAgentConfig('rulai');
+    if (config) {
+      this.config = config;
+      (this.logger as any).context = `${config.name}Agent`;
+    }
   }
 
   /**
@@ -128,7 +106,7 @@ export class RulaiAgent extends ExecutableAgentBase {
    * 构建专属的系统提示
    */
   protected override getSystemPrompt(): string {
-    return `${this.persona}
+    return `${this.config.persona}
 
 重要提示：
 - 你是一个资深顾问，提供高层次的建议和指导

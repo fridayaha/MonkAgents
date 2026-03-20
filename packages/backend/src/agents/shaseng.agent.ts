@@ -1,54 +1,32 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ExecutableAgentBase, AgentExecutionContext } from './executable-agent-base';
 import { AgentConfig, CliExecutionResult } from '@monkagents/shared';
+import { ConfigService } from '../config/config.service';
 
 /**
- * 沙僧智能体 - 检查者
+ * 沙和尚智能体 - 检查者
  * 负责：代码审查、测试验证、质量保证、安全检查
  */
 @Injectable()
-export class ShasengAgent extends ExecutableAgentBase {
-  private persona: string;
+export class ShasengAgent extends ExecutableAgentBase implements OnModuleInit {
+  private configService: ConfigService;
 
-  constructor() {
-    const defaultConfig: AgentConfig = {
-      id: 'shaseng',
-      name: '沙僧',
-      emoji: '🧑‍🦲',
-      role: 'inspector',
-      persona: `你是沙僧，团队的检查者。你负责质量保证，检查代码质量、测试覆盖率、潜在问题等。
+  constructor(configService: ConfigService) {
+    super({} as AgentConfig);
+    this.configService = configService;
+  }
 
-性格特点：
-- 细心认真，注重细节
-- 责任心强，不放过任何问题
-- 沉稳可靠，按部就班
-- 对质量标准有严格要求
-
-工作方式：
-1. 审查团队成员的工作成果
-2. 检查代码质量和规范性
-3. 运行测试并报告结果
-4. 发现问题及时反馈
-5. 确保交付物符合标准
-
-技能：代码审查、测试验证、质量保证、安全检查`,
-      model: 'claude-sonnet-4-6',
-      cli: {
-        command: 'claude',
-        args: ['-p', '--output-format', 'stream-json', '--verbose'],
-      },
-      skills: ['code_review', 'testing', 'quality_assurance'],
-      mcps: [],
-      capabilities: ['code_review', 'testing', 'linting', 'security_check'],
-      boundaries: ['不直接修改代码（只提出建议）', '最终决策由师父做出'],
-    };
-    super(defaultConfig);
-    this.persona = defaultConfig.persona;
+  onModuleInit() {
+    const config = this.configService.getAgentConfig('shaseng');
+    if (config) {
+      this.config = config;
+      (this.logger as any).context = `${config.name}Agent`;
+    }
   }
 
   /**
-   * 检查任务是否匹配沙僧的能力范围
-   * 沙僧擅长：代码审查、测试、质量检查、安全审计
+   * 检查任务是否匹配沙和尚的能力范围
+   * 沙和尚擅长：代码审查、测试、质量检查、安全审计
    */
   canHandle(task: string): boolean {
     const taskLower = task.toLowerCase();
@@ -89,7 +67,7 @@ export class ShasengAgent extends ExecutableAgentBase {
 
   /**
    * 获取任务优先级权重
-   * 沙僧对审查和测试任务优先级较高
+   * 沙和尚对审查和测试任务优先级较高
    */
   getPriorityWeight(task: string): number {
     const taskLower = task.toLowerCase();
@@ -126,7 +104,7 @@ export class ShasengAgent extends ExecutableAgentBase {
    * 构建专属的系统提示
    */
   protected override getSystemPrompt(): string {
-    return `${this.persona}
+    return `${this.config.persona}
 
 重要提示：
 - 你只负责检查和提出建议，不直接修改代码
@@ -146,7 +124,7 @@ export class ShasengAgent extends ExecutableAgentBase {
       onError?: (error: string) => void;
     },
   ): Promise<CliExecutionResult> {
-    this.logger.log(`沙僧开始审查任务: ${context.prompt.substring(0, 50)}...`);
+    this.logger.log(`沙和尚开始审查任务: ${context.prompt.substring(0, 50)}...`);
 
     const wrappedCallbacks = {
       onInit: (_sessionId: string) => {
