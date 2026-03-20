@@ -79,6 +79,10 @@ describe('AgentCollaborationService', () => {
 
   describe('getAllCollaborationSessions', () => {
     it('should return all sessions', () => {
+      // Clear existing sessions first
+      const existingSessions = service.getAllCollaborationSessions();
+      existingSessions.forEach(s => service.cancelCollaboration(s.id));
+
       service.createCollaborationSession('session-1', 'task 1', ['wukong']);
       service.createCollaborationSession('session-2', 'task 2', ['bajie']);
 

@@ -10,19 +10,26 @@
   <div id="app">
     <!-- Header -->
     <header class="header">
-      <h1 class="header-title">🧘 MonkAgents</h1>
-      <div class="header-status">
+      <div class="header-left">
+        <h1 class="header-title">🧘 MonkAgents</h1>
+        <nav class="nav">
+          <button class="nav-item active" data-page="chat">💬 对话</button>
+          <button class="nav-item" data-page="tasks">📋 任务</button>
+          <button class="nav-item" data-page="scheduled">⏰ 定时任务</button>
+        </nav>
+      </div>
+      <div class="header-right">
         <span id="connection-status" class="status-indicator disconnected">已断开</span>
       </div>
     </header>
 
-    <!-- Main Content - Three Column Layout -->
-    <main class="main-content">
+    <!-- Chat Page -->
+    <main id="page-chat" class="page active main-content">
       <!-- Left Sidebar - Sessions -->
       <aside class="sidebar sessions-sidebar">
         <div class="sidebar-header">
           <h2>会话列表</h2>
-          <button id="new-session-btn" class="btn btn-primary">+ 新建会话</button>
+          <button id="new-session-btn" class="btn btn-primary">+ 新建</button>
         </div>
         <div id="sessions-list" class="sessions-list">
           <!-- Sessions will be loaded here -->
@@ -32,28 +39,39 @@
       <!-- Center - Chat Area -->
       <section class="chat-area">
         <div class="chat-header">
-          <h2 id="current-session-title">选择一个会话开始</h2>
-          <span id="working-directory" class="working-dir"></span>
+          <div>
+            <h2 id="current-session-title">选择一个会话开始</h2>
+            <span id="working-directory" class="working-dir"></span>
+          </div>
+          <div class="chat-header-actions">
+            <button id="debug-btn" class="btn btn-icon" title="调试详情">🔍</button>
+          </div>
         </div>
         <div id="messages-container" class="messages-container">
           <!-- Messages will be loaded here -->
           <div class="welcome-message">
-            <p>👋 欢迎使用 MonkAgents</p>
+            <h3>👋 欢迎使用 MonkAgents</h3>
             <p>选择或创建一个会话开始与智能体协作</p>
+            <p style="font-size: 0.875rem; color: #999; margin-top: 16px;">
+              提示：使用 @智能体名称 可以召唤特定智能体<br>
+              例如：@孙悟空 写一个函数
+            </p>
           </div>
         </div>
         <div class="input-area">
-          <textarea id="message-input" placeholder="输入你的问题或任务..." rows="3"></textarea>
-          <div class="input-actions">
-            <select id="agent-select" class="agent-select">
-              <option value="">自动分配</option>
-              <option value="tangseng">🙏 唐僧</option>
-              <option value="wukong">🐵 孙悟空</option>
-              <option value="bajie">🐷 猪八戒</option>
-              <option value="shaseng">🧑‍🦲 沙僧</option>
-              <option value="rulai">🧘 如来佛祖</option>
-            </select>
-            <button id="send-btn" class="btn btn-primary">发送</button>
+          <div class="input-wrapper">
+            <textarea id="message-input" placeholder="输入你的问题或任务... 使用 @智能体名称 召唤特定智能体" rows="3"></textarea>
+            <div class="input-actions">
+              <select id="agent-select" class="agent-select">
+                <option value="">自动分配</option>
+                <option value="tangseng">🧘 唐僧</option>
+                <option value="wukong">🐵 孙悟空</option>
+                <option value="bajie">🐷 猪八戒</option>
+                <option value="shaseng">🧑‍🦲 沙僧</option>
+                <option value="rulai">🧘 如来佛祖</option>
+              </select>
+              <button id="send-btn" class="btn btn-primary">发送</button>
+            </div>
           </div>
         </div>
       </section>
@@ -68,6 +86,53 @@
         </div>
       </aside>
     </main>
+
+    <!-- Tasks Page -->
+    <main id="page-tasks" class="page tasks-page">
+      <div class="page-header">
+        <h1>📋 任务列表</h1>
+        <div class="filters">
+          <select id="task-status-filter" class="filter-select">
+            <option value="">全部状态</option>
+            <option value="pending">等待中</option>
+            <option value="thinking">思考中</option>
+            <option value="executing">执行中</option>
+            <option value="completed">已完成</option>
+            <option value="failed">失败</option>
+          </select>
+          <select id="task-session-filter" class="filter-select">
+            <option value="">全部会话</option>
+          </select>
+        </div>
+      </div>
+      <div id="task-list" class="task-list">
+        <!-- Tasks will be loaded here -->
+      </div>
+    </main>
+
+    <!-- Scheduled Tasks Page -->
+    <main id="page-scheduled" class="page scheduled-page">
+      <div class="page-header">
+        <h1>⏰ 定时任务</h1>
+        <button id="new-schedule-btn" class="btn btn-primary">+ 新建定时任务</button>
+      </div>
+      <div id="scheduled-list">
+        <!-- Scheduled tasks will be loaded here -->
+      </div>
+    </main>
+
+    <!-- Debug Page (shown as modal overlay) -->
+    <div id="debug-page" class="modal hidden">
+      <div class="modal-content" style="max-width: 800px; width: 90%;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3>🔍 调试详情</h3>
+          <button id="close-debug-btn" class="btn btn-icon">✕</button>
+        </div>
+        <div id="debug-content">
+          <!-- Debug content will be loaded here -->
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- New Session Modal -->
@@ -85,6 +150,37 @@
       <div class="modal-actions">
         <button id="cancel-modal-btn" class="btn btn-secondary">取消</button>
         <button id="create-session-btn" class="btn btn-primary">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Scheduled Task Modal -->
+  <div id="new-schedule-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>新建定时任务</h3>
+      <div class="form-group">
+        <label for="schedule-title">任务标题</label>
+        <input type="text" id="schedule-title" placeholder="输入任务标题">
+      </div>
+      <div class="form-group">
+        <label for="schedule-description">任务描述</label>
+        <textarea id="schedule-description" placeholder="描述任务内容"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="schedule-time">执行时间</label>
+        <input type="datetime-local" id="schedule-time">
+      </div>
+      <div class="form-group">
+        <label for="schedule-repeat">重复方式</label>
+        <select id="schedule-repeat" class="filter-select" style="width: 100%;">
+          <option value="once">仅一次</option>
+          <option value="daily">每天</option>
+          <option value="weekly">每周</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button id="cancel-schedule-btn" class="btn btn-secondary">取消</button>
+        <button id="create-schedule-btn" class="btn btn-primary">创建</button>
       </div>
     </div>
   </div>

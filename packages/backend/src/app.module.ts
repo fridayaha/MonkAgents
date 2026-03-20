@@ -7,6 +7,8 @@ import { AgentsModule } from './agents/agents.module';
 import { SessionModule } from './session/session.module';
 import { TasksModule } from './tasks/tasks.module';
 import { WebSocketModule } from './websocket/websocket.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
+import { DebugModule } from './debug/debug.module';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { WebSocketModule } from './websocket/websocket.module';
     SessionModule,
     TasksModule,
     WebSocketModule,
+    SchedulerModule,
+    DebugModule,
   ],
   controllers: [AppController],
   providers: [],
