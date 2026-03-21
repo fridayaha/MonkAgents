@@ -48,15 +48,38 @@ export abstract class AgentBase {
   // CLI execution helper (to be implemented in phase 2)
   protected async executeCli(prompt: string): Promise<AgentExecutionResult> {
     return new Promise((resolve, reject) => {
-      const { command, args } = this.config.cli;
+      // Determine the correct claude executable path
+      let actualCommand = this.config.cli.command;
+      if (process.platform === 'win32' && actualCommand === 'claude') {
+        // On Windows, prefer the official installation path (.local/bin/claude.exe)
+        const localBin = require('path').join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe');
+        const npmClaude = require('path').join(process.env.APPDATA || '', 'npm', 'claude.cmd');
 
-      this.logger.debug(`Executing CLI: ${command} ${args.join(' ')}`);
+        // Check which one exists
+        const fs = require('fs');
+        if (fs.existsSync(localBin)) {
+          actualCommand = localBin;
+        } else if (fs.existsSync(npmClaude)) {
+          actualCommand = npmClaude;
+        }
+      }
+
+      this.logger.debug(`Executing CLI: ${actualCommand} ${this.config.cli.args.join(' ')}`);
       this.status = 'executing';
 
-      const processArgs = [...args, prompt];
-      this.currentProcess = spawn(command, processArgs, {
+      // Prepare environment
+      const env: Record<string, string> = {};
+      Object.keys(process.env).forEach(key => {
+        if (!key.startsWith('CLAUDECODE') && !key.startsWith('CLAUDE_CODE')) {
+          env[key] = process.env[key] || '';
+        }
+      });
+
+      const processArgs = [...this.config.cli.args, prompt];
+      this.currentProcess = spawn(actualCommand, processArgs, {
         cwd: this.workingDirectory,
-        shell: true,
+        env,
+        shell: false,  // Don't use shell when we have the exact path
       });
 
       let output = '';

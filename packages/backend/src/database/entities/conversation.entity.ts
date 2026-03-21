@@ -8,16 +8,16 @@ import {
 import { MessageSender, MessageType } from '@monkagents/shared';
 
 @Entity('conversations')
+@Index('idx_conversations_session_id', ['sessionId'])
+@Index('idx_conversations_task_id', ['taskId'])
 export class Conversation {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column()
-  @Index()
   sessionId: string;
 
   @Column({ nullable: true })
-  @Index()
   taskId: string;
 
   @Column({ nullable: true })

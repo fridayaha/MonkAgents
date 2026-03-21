@@ -13,9 +13,14 @@ import { AgentCollaborationService } from './agent-collaboration.service';
 import { ChatService } from './chat.service';
 import { Agent } from '../database/entities/agent.entity';
 import { ConfigModule } from '../config/config.module';
+import { SessionModule } from '../session/session.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Agent]), ConfigModule],
+  imports: [
+    TypeOrmModule.forFeature([Agent]),
+    ConfigModule,
+    SessionModule,
+  ],
   providers: [
     AgentsService,
     TaskPlanner,

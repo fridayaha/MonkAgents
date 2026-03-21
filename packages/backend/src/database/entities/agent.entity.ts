@@ -9,12 +9,12 @@ import {
 import { AgentStatus, AgentRole } from '@monkagents/shared';
 
 @Entity('agents')
+@Index('idx_agents_agent_id', ['agentId'])
 export class Agent {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column({ unique: true })
-  @Index()
   agentId: string;
 
   @Column()

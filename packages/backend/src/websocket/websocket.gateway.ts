@@ -15,6 +15,7 @@ import { TangsengAgent } from '../agents/tangseng.agent';
 import { TasksService } from '../tasks/tasks.service';
 import { TaskPlanner } from '../agents/task-planner';
 import { AgentsService } from '../agents/agents.service';
+import { SessionService } from '../session/session.service';
 
 @WsGateway({
   cors: {
@@ -36,6 +37,7 @@ export class WebSocketGateway
     private readonly tasksService: TasksService,
     private readonly taskPlanner: TaskPlanner,
     private readonly agentsService: AgentsService,
+    private readonly sessionService: SessionService,
   ) {}
 
   afterInit(server: Server) {
@@ -43,6 +45,7 @@ export class WebSocketGateway
     this.webSocketService.setDependencies(
       this.tangsengAgent,
       this.tasksService,
+      this.sessionService,
     );
     // Set dependencies for TangsengAgent
     this.tangsengAgent.setDependencies(
@@ -50,6 +53,7 @@ export class WebSocketGateway
       this.tasksService,
       this.webSocketService,
       this.agentsService,
+      this.sessionService,
     );
     this.logger.log('WebSocket Gateway initialized');
   }

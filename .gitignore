@@ -22,6 +22,7 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+.claude/settings.local.json
 
 # Logs
 logs/
@@ -31,6 +32,11 @@ npm-debug.log*
 # Database
 data/sqlite/*.db
 data/sqlite/*.db-journal
+packages/backend/data/sqlite/*.db
+packages/backend/data/sqlite/*.db-journal
+
+# Test directories
+packages/backend/monkagent_test/
 
 # Test
 coverage/

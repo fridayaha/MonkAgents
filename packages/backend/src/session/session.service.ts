@@ -2,27 +2,18 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
+import { Session } from '../database/entities/session.entity';
 import { Conversation } from '../database/entities/conversation.entity';
 import { Task } from '../database/entities/task.entity';
 import { SessionStatus, CreateSessionInput, SessionSummary, SessionDetail } from '@monkagents/shared';
 
-export interface Session {
-  id: string;
-  title?: string;
-  status: SessionStatus;
-  workingDirectory: string;
-  createdAt: Date;
-  updatedAt: Date;
-  messageCount: number;
-  taskCount: number;
-}
-
 @Injectable()
 export class SessionService {
   private readonly logger = new Logger(SessionService.name);
-  private sessions: Map<string, Session> = new Map();
 
   constructor(
+    @InjectRepository(Session)
+    private readonly sessionRepository: Repository<Session>,
     @InjectRepository(Conversation)
     private readonly conversationRepository: Repository<Conversation>,
     @InjectRepository(Task)
@@ -30,43 +21,55 @@ export class SessionService {
   ) {}
 
   async create(input: CreateSessionInput): Promise<Session> {
-    const id = uuidv4();
-    const now = new Date();
-
-    const session: Session = {
-      id,
+    const session = this.sessionRepository.create({
+      id: uuidv4(),
       title: input.title,
-      status: 'active',
+      status: 'active' as SessionStatus,
       workingDirectory: input.workingDirectory,
-      createdAt: now,
-      updatedAt: now,
-      messageCount: 0,
-      taskCount: 0,
-    };
+    });
 
-    this.sessions.set(id, session);
-    this.logger.log(`Created session: ${id}`);
+    const saved = await this.sessionRepository.save(session);
+    this.logger.log(`Created session: ${saved.id}`);
 
-    return session;
+    return saved;
   }
 
   async findAll(): Promise<SessionSummary[]> {
-    return Array.from(this.sessions.values())
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-      .map((session) => ({
+    const sessions = await this.sessionRepository.find({
+      order: { updatedAt: 'DESC' },
+    });
+
+    const summaries: SessionSummary[] = [];
+
+    for (const session of sessions) {
+      const messageCount = await this.conversationRepository.count({
+        where: { sessionId: session.id },
+      });
+
+      const taskCount = await this.taskRepository.count({
+        where: { sessionId: session.id },
+      });
+
+      summaries.push({
         id: session.id,
-        title: session.title,
+        title: session.title ?? undefined,
         status: session.status,
-        workingDirectory: session.workingDirectory,
+        workingDirectory: session.workingDirectory ?? undefined,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        messageCount: session.messageCount,
-        taskCount: session.taskCount,
-      }));
+        messageCount,
+        taskCount,
+      });
+    }
+
+    return summaries;
   }
 
   async findOne(id: string): Promise<SessionDetail> {
-    const session = this.sessions.get(id);
+    const session = await this.sessionRepository.findOne({
+      where: { id },
+    });
+
     if (!session) {
       throw new NotFoundException(`Session not found: ${id}`);
     }
@@ -83,10 +86,21 @@ export class SessionService {
       order: { createdAt: 'DESC' },
     });
 
+    // Get counts
+    const messageCount = messages.length;
+    const taskCount = tasks.length;
+
     return {
-      ...session,
+      id: session.id,
+      title: session.title ?? undefined,
+      status: session.status,
+      workingDirectory: session.workingDirectory ?? undefined,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      messageCount,
+      taskCount,
       config: {
-        workingDirectory: session.workingDirectory,
+        workingDirectory: session.workingDirectory ?? undefined,
       },
       messages: messages.map((m) => ({
         id: m.id,
@@ -119,19 +133,25 @@ export class SessionService {
   }
 
   async update(id: string, updates: Partial<Pick<Session, 'title' | 'status'>>): Promise<Session> {
-    const session = this.sessions.get(id);
+    const session = await this.sessionRepository.findOne({
+      where: { id },
+    });
+
     if (!session) {
       throw new NotFoundException(`Session not found: ${id}`);
     }
 
-    Object.assign(session, updates, { updatedAt: new Date() });
-    this.sessions.set(id, session);
+    Object.assign(session, updates);
+    const saved = await this.sessionRepository.save(session);
 
-    return session;
+    return saved;
   }
 
   async remove(id: string): Promise<void> {
-    const session = this.sessions.get(id);
+    const session = await this.sessionRepository.findOne({
+      where: { id },
+    });
+
     if (!session) {
       throw new NotFoundException(`Session not found: ${id}`);
     }
@@ -143,32 +163,22 @@ export class SessionService {
     await this.taskRepository.delete({ sessionId: id });
 
     // Remove session
-    this.sessions.delete(id);
+    await this.sessionRepository.remove(session);
     this.logger.log(`Deleted session: ${id}`);
   }
 
   // Internal method to update session stats
   async updateMessageCount(sessionId: string): Promise<void> {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      const count = await this.conversationRepository.count({
-        where: { sessionId },
-      });
-      session.messageCount = count;
-      session.updatedAt = new Date();
-      this.sessions.set(sessionId, session);
-    }
+    // Just touch the session to update updatedAt
+    await this.sessionRepository.update(sessionId, {
+      updatedAt: new Date(),
+    });
   }
 
   async updateTaskCount(sessionId: string): Promise<void> {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      const count = await this.taskRepository.count({
-        where: { sessionId },
-      });
-      session.taskCount = count;
-      session.updatedAt = new Date();
-      this.sessions.set(sessionId, session);
-    }
+    // Just touch the session to update updatedAt
+    await this.sessionRepository.update(sessionId, {
+      updatedAt: new Date(),
+    });
   }
 }

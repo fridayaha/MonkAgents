@@ -11,12 +11,12 @@ import { TaskStatus, AgentRole } from '@monkagents/shared';
 import { Task } from './task.entity';
 
 @Entity('subtasks')
+@Index('idx_subtasks_task_id', ['taskId'])
 export class Subtask {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column()
-  @Index()
   taskId: string;
 
   @Column({ nullable: true })

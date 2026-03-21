@@ -3,7 +3,7 @@ import { WebSocketService } from './websocket.service';
 import { Socket, Server } from 'socket.io';
 import { AgentMentionService } from '../agents/agent-mention.service';
 import { AgentsService } from '../agents/agents.service';
-import { ChatService } from '../agents/chat.service';
+import { RedisService } from '../redis/redis.service';
 
 describe('WebSocketService', () => {
   let service: WebSocketService;
@@ -37,12 +37,10 @@ describe('WebSocketService', () => {
     getExecutableAgent: jest.fn().mockReturnValue(null),
   };
 
-  const mockChatService = {
-    isChatMessage: jest.fn().mockReturnValue(false),
-    isTaskRequest: jest.fn().mockReturnValue(false),
-    handleChatMessage: jest.fn(),
-    generateTaskBreakdown: jest.fn().mockReturnValue({ analysis: '', assignments: [] }),
-    generateTangsengTaskResponse: jest.fn().mockReturnValue(''),
+  const mockRedisService = {
+    getSessionHistory: jest.fn().mockResolvedValue([]),
+    addMessageToHistory: jest.fn().mockResolvedValue(undefined),
+    isAvailable: jest.fn().mockReturnValue(true),
   };
 
   beforeEach(async () => {
@@ -60,8 +58,8 @@ describe('WebSocketService', () => {
           useValue: mockAgentsService,
         },
         {
-          provide: ChatService,
-          useValue: mockChatService,
+          provide: RedisService,
+          useValue: mockRedisService,
         },
       ],
     }).compile();
@@ -168,7 +166,7 @@ describe('WebSocketService', () => {
 
   describe('setDependencies', () => {
     it('should set dependencies', () => {
-      service.setDependencies({} as any, {} as any);
+      service.setDependencies({} as any, {} as any, {} as any);
       // Dependencies should be set
     });
   });

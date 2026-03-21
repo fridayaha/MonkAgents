@@ -89,22 +89,45 @@ export class CliSession {
       // Start activity-based timeout check
       this.startActivityCheck();
 
-      this.logger.debug(`Starting CLI: ${command} ${args.join(' ')}`);
+      // Determine the correct claude executable path
+      let actualCommand = command;
+      if (process.platform === 'win32' && command === 'claude') {
+        // On Windows, prefer the official installation path (.local/bin/claude.exe)
+        const localBin = require('path').join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe');
+        const npmClaude = require('path').join(process.env.APPDATA || '', 'npm', 'claude.cmd');
 
-      // Spawn process with shell: true for command flexibility
-      this.process = spawn(command, [...args, this.options.prompt], {
-        cwd: workingDirectory || process.cwd(),
-        shell: true,
-        stdio: ['inherit', 'pipe', 'pipe'],  // inherit stdin, pipe stdout/stderr
-        env: {
-          ...process.env,
-          // Pass through environment for API configuration
-          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-          ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN || '',
-          ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || '',
-          ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL || '',
-        },
+        // Check which one exists
+        const fs = require('fs');
+        if (fs.existsSync(localBin)) {
+          actualCommand = localBin;
+        } else if (fs.existsSync(npmClaude)) {
+          actualCommand = npmClaude;
+        }
+      }
+
+      this.logger.debug(`Starting CLI: ${actualCommand} ${args.join(' ')}`);
+
+      // Prepare environment
+      const env: Record<string, string> = {};
+      Object.keys(process.env).forEach(key => {
+        if (!key.startsWith('CLAUDECODE') && !key.startsWith('CLAUDE_CODE')) {
+          env[key] = process.env[key] || '';
+        }
       });
+
+      // Spawn process without shell when we have exact path
+      this.process = spawn(actualCommand, [...args, this.options.prompt], {
+        cwd: workingDirectory || process.cwd(),
+        shell: false,
+        stdio: ['pipe', 'pipe', 'pipe'],  // pipe stdin to send prompt
+        env,
+      });
+
+      // Write prompt to stdin
+      if (this.process.stdin) {
+        this.process.stdin.write(this.options.prompt);
+        this.process.stdin.end();
+      }
 
       this.state.status = 'running';
       this.state.pid = this.process.pid || undefined;

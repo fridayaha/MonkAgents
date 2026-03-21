@@ -1,24 +1,24 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { readFile, access, mkdir } from 'fs/promises';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { parse } from 'yaml';
 import { AgentConfig, AgentRole } from '@monkagents/shared';
 
 interface SystemConfig {
   database: {
-    type: 'sqlite' | 'postgres';
-    path?: string;
-    host?: string;
-    port?: number;
-    username?: string;
-    password?: string;
-    database?: string;
+    type: 'mysql';
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    database: string;
   };
   redis?: {
     host: string;
     port: number;
     password?: string;
     db?: number;
+    keyPrefix?: string;
   };
   logging: {
     level: string;
@@ -36,17 +36,17 @@ interface SystemConfig {
 @Injectable()
 export class ConfigService {
   private readonly logger = new Logger(ConfigService.name);
-  private systemConfig: SystemConfig | null = null;
+  private systemConfig: SystemConfig;
   private agentConfigs: Map<string, AgentConfig> = new Map();
 
-  async onModuleInit() {
-    await this.loadSystemConfig();
-    await this.loadAgentConfigs();
+  constructor() {
+    // Synchronously load config in constructor to ensure it's available before TypeORM initializes
+    this.systemConfig = this.loadSystemConfigSync();
+    this.loadAgentConfigsSync();
     this.logger.log(`Loaded ${this.agentConfigs.size} agent configurations`);
   }
 
-  private async loadSystemConfig(): Promise<void> {
-    // Check multiple possible locations for config
+  private loadSystemConfigSync(): SystemConfig {
     const configPaths = [
       join(process.cwd(), 'configs', 'system.yaml'),
       join(process.cwd(), '..', '..', 'configs', 'system.yaml'),
@@ -54,32 +54,22 @@ export class ConfigService {
 
     for (const configPath of configPaths) {
       try {
-        await access(configPath);
-        const content = await readFile(configPath, 'utf-8');
-        this.systemConfig = parse(content) as SystemConfig;
-        this.logger.log(`System configuration loaded from: ${configPath}`);
-        break;
-      } catch {
-        // Try next path
+        if (existsSync(configPath)) {
+          const content = readFileSync(configPath, 'utf-8');
+          const config = parse(content) as SystemConfig;
+          this.logger.log(`System configuration loaded from: ${configPath}`);
+          return config;
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to load config from ${configPath}: ${error}`);
       }
     }
 
-    if (!this.systemConfig) {
-      this.logger.warn('System configuration not found, using defaults');
-      this.systemConfig = this.getDefaultSystemConfig();
-    }
-
-    // Ensure data directory exists
-    const dataDir = join(process.cwd(), 'data', 'sqlite');
-    try {
-      await mkdir(dataDir, { recursive: true });
-    } catch {
-      // Directory already exists
-    }
+    this.logger.warn('System configuration not found, using defaults');
+    return this.getDefaultSystemConfig();
   }
 
-  private async loadAgentConfigs(): Promise<void> {
-    // Check multiple possible locations for agent configs
+  private loadAgentConfigsSync(): void {
     const agentsPaths = [
       join(process.cwd(), 'configs', 'agents'),
       join(process.cwd(), '..', '..', 'configs', 'agents'),
@@ -87,12 +77,9 @@ export class ConfigService {
 
     let agentsPath: string | null = null;
     for (const path of agentsPaths) {
-      try {
-        await access(path);
+      if (existsSync(path)) {
         agentsPath = path;
         break;
-      } catch {
-        // Try next path
       }
     }
 
@@ -112,11 +99,12 @@ export class ConfigService {
     for (const file of agentFiles) {
       const filePath = join(agentsPath, file);
       try {
-        await access(filePath);
-        const content = await readFile(filePath, 'utf-8');
-        const config = parse(content) as AgentConfig;
-        this.agentConfigs.set(config.id, config);
-        this.logger.debug(`Loaded agent config: ${config.id}`);
+        if (existsSync(filePath)) {
+          const content = readFileSync(filePath, 'utf-8');
+          const config = parse(content) as AgentConfig;
+          this.agentConfigs.set(config.id, config);
+          this.logger.debug(`Loaded agent config: ${config.id}`);
+        }
       } catch {
         this.logger.warn(`Agent config not found: ${file}`);
       }
@@ -126,8 +114,12 @@ export class ConfigService {
   private getDefaultSystemConfig(): SystemConfig {
     return {
       database: {
-        type: 'sqlite',
-        path: './data/sqlite/monkagents.db',
+        type: 'mysql',
+        host: 'localhost',
+        port: 3306,
+        username: 'root',
+        password: '',
+        database: 'monkagents',
       },
       logging: {
         level: 'info',
@@ -141,13 +133,6 @@ export class ConfigService {
         configPath: './configs/agents',
       },
     };
-  }
-
-  getDatabasePath(): string {
-    if (this.systemConfig?.database?.type === 'sqlite') {
-      return join(process.cwd(), this.systemConfig.database.path || './data/sqlite/monkagents.db');
-    }
-    return join(process.cwd(), './data/sqlite/monkagents.db');
   }
 
   getAgentConfig(agentId: string): AgentConfig | undefined {
@@ -180,22 +165,50 @@ export class ConfigService {
   }
 
   getServerPort(): number {
-    return this.systemConfig?.server?.port || 3000;
+    return this.systemConfig.server.port;
   }
 
   getServerHost(): string {
-    return this.systemConfig?.server?.host || 'localhost';
+    return this.systemConfig.server.host;
   }
 
   getLogLevel(): string {
-    return this.systemConfig?.logging?.level || 'info';
+    return this.systemConfig.logging.level;
   }
 
   isDevelopment(): boolean {
     return process.env.NODE_ENV !== 'production';
   }
 
-  getSystemConfig(): SystemConfig | null {
+  getSystemConfig(): SystemConfig {
     return this.systemConfig;
+  }
+
+  /**
+   * Get database configuration
+   */
+  getDatabaseConfig() {
+    const db = this.systemConfig.database;
+    return {
+      host: db.host,
+      port: db.port,
+      username: db.username,
+      password: db.password,
+      database: db.database,
+    };
+  }
+
+  /**
+   * Get Redis configuration
+   */
+  getRedisConfig() {
+    const redis = this.systemConfig?.redis;
+    return {
+      host: redis?.host || 'localhost',
+      port: redis?.port || 6379,
+      password: redis?.password,
+      db: redis?.db || 0,
+      keyPrefix: redis?.keyPrefix || 'monkagents:',
+    };
   }
 }

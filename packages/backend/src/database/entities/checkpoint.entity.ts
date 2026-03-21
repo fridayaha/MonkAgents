@@ -7,16 +7,16 @@ import {
 } from 'typeorm';
 
 @Entity('checkpoints')
+@Index('idx_checkpoints_session_id', ['sessionId'])
+@Index('idx_checkpoints_task_id', ['taskId'])
 export class Checkpoint {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column()
-  @Index()
   sessionId: string;
 
   @Column({ nullable: true })
-  @Index()
   taskId: string;
 
   @Column()

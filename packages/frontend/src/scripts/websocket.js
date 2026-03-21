@@ -55,6 +55,11 @@ class WebSocketClient {
     this.socket.on('error', (data) => {
       this.emit('error', data);
     });
+
+    // Handle session history from Redis
+    this.socket.on('session_history', (data) => {
+      this.emit('session_history', data);
+    });
   }
 
   disconnect() {

@@ -9,24 +9,24 @@ import {
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 @Entity('execution_logs')
+@Index('idx_execution_logs_task_id', ['taskId'])
+@Index('idx_execution_logs_subtask_id', ['subtaskId'])
+@Index('idx_execution_logs_agent_id', ['agentId'])
+@Index('idx_execution_logs_session_id', ['sessionId'])
 export class ExecutionLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column({ nullable: true })
-  @Index()
   taskId: string;
 
   @Column({ nullable: true })
-  @Index()
   subtaskId: string;
 
   @Column({ nullable: true })
-  @Index()
   agentId: string;
 
   @Column({ nullable: true })
-  @Index()
   sessionId: string;
 
   @Column({

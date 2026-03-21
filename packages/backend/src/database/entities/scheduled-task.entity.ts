@@ -11,12 +11,12 @@ export type ScheduleStatus = 'pending' | 'running' | 'completed' | 'failed' | 'c
 export type ScheduleType = 'once' | 'interval' | 'cron';
 
 @Entity('scheduled_tasks')
+@Index('idx_scheduled_tasks_session_id', ['sessionId'])
 export class ScheduledTask {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column()
-  @Index()
   sessionId: string;
 
   @Column()

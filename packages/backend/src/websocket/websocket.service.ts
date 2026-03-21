@@ -5,7 +5,8 @@ import { TangsengAgent } from '../agents/tangseng.agent';
 import { TasksService } from '../tasks/tasks.service';
 import { AgentMentionService, ParsedMessage } from '../agents/agent-mention.service';
 import { AgentsService } from '../agents/agents.service';
-import { ChatService } from '../agents/chat.service';
+import { SessionService } from '../session/session.service';
+import { RedisService } from '../redis/redis.service';
 
 /**
  * Service for WebSocket communication and task coordination
@@ -20,11 +21,12 @@ export class WebSocketService implements OnModuleInit {
   // Will be injected after module initialization to avoid circular deps
   private tangsengAgent: TangsengAgent | null = null;
   private tasksService: TasksService | null = null;
+  private sessionService: SessionService | null = null;
 
   constructor(
     private readonly mentionService: AgentMentionService,
     private readonly agentsService: AgentsService,
-    private readonly chatService: ChatService,
+    private readonly redisService: RedisService,
   ) {}
 
   onModuleInit() {
@@ -37,9 +39,11 @@ export class WebSocketService implements OnModuleInit {
   setDependencies(
     tangsengAgent: TangsengAgent,
     tasksService: TasksService,
+    sessionService: SessionService,
   ): void {
     this.tangsengAgent = tangsengAgent;
     this.tasksService = tasksService;
+    this.sessionService = sessionService;
   }
 
   setServer(server: Server) {
@@ -64,6 +68,9 @@ export class WebSocketService implements OnModuleInit {
       sessions.add(sessionId);
       this.logger.debug(`Client ${clientId} joined session: ${sessionId}`);
     }
+
+    // Load and send session history from Redis
+    this.loadAndSendSessionHistory(clientId, sessionId);
   }
 
   leaveSession(clientId: string, sessionId: string): void {
@@ -75,10 +82,53 @@ export class WebSocketService implements OnModuleInit {
   }
 
   /**
-   * Handle user message - process through Tangseng agent or route to specific agent
+   * Load session history from Redis and send to client
+   */
+  private async loadAndSendSessionHistory(clientId: string, sessionId: string): Promise<void> {
+    try {
+      const history = await this.redisService.getSessionHistory(sessionId, 100);
+
+      if (history.length > 0) {
+        const client = this.clients.get(clientId);
+        if (client) {
+          // Send history to the specific client
+          client.emit('session_history', {
+            sessionId,
+            messages: history,
+            count: history.length,
+          });
+          this.logger.debug(`Sent ${history.length} history messages to client ${clientId}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Failed to load session history: ${error}`);
+    }
+  }
+
+  /**
+   * Get session working directory
+   */
+  private async getSessionWorkingDirectory(sessionId: string): Promise<string> {
+    try {
+      if (this.sessionService) {
+        const session = await this.sessionService.findOne(sessionId);
+        return session.workingDirectory || process.cwd();
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to get session working directory: ${error}`);
+    }
+    return process.cwd();
+  }
+
+  /**
+   * Handle user message - process through Tangseng agent for intelligent planning
    */
   async handleUserMessage(clientId: string, sessionId: string, content: string): Promise<void> {
     this.logger.debug(`User message from ${clientId} in ${sessionId}: ${content}`);
+
+    // Get session working directory
+    const workingDirectory = await this.getSessionWorkingDirectory(sessionId);
+    this.logger.debug(`Session working directory: ${workingDirectory}`);
 
     // Parse message for @mentions
     const parsedMessage = this.mentionService.parseMessage(content);
@@ -102,26 +152,14 @@ export class WebSocketService implements OnModuleInit {
     }
 
     try {
-      // Determine message type and route accordingly
+      // Check if there's a direct @mention to a specific agent
       if (parsedMessage.hasMentions && parsedMessage.primaryAgent) {
         // Direct routing to mentioned agent(s)
-        await this.routeToSpecificAgent(sessionId, parsedMessage);
-      } else if (this.chatService.isChatMessage(content, parsedMessage)) {
-        // Group chat mode - all agents respond based on their personality
-        await this.chatService.handleChatMessage(sessionId, content, this);
-      } else if (this.chatService.isTaskRequest(content)) {
-        // Task mode - Tangseng decomposes and assigns tasks
-        await this.handleTaskRequest(sessionId, content);
+        await this.routeToSpecificAgent(sessionId, parsedMessage, workingDirectory);
       } else {
-        // Default routing through Tangseng (master) agent
-        const task = await this.tangsengAgent.processUserMessage(sessionId, content);
-
-        // Broadcast task creation
-        this.emitToSession(sessionId, 'task_status', {
-          taskId: task.id,
-          status: task.status,
-          message: '任务已创建，正在分析...',
-        });
+        // All other messages go through Tangseng for intelligent planning
+        // The planner will determine if it's a chat, task, or help scenario
+        await this.tangsengAgent.processUserMessage(sessionId, content, workingDirectory);
       }
     } catch (error) {
       this.logger.error(`Error processing message: ${error}`);
@@ -130,77 +168,14 @@ export class WebSocketService implements OnModuleInit {
   }
 
   /**
-   * Handle task request - Tangseng decomposes and assigns
-   */
-  private async handleTaskRequest(sessionId: string, content: string): Promise<void> {
-    this.logger.log(`Handling task request: ${content}`);
-
-    // Broadcast that Tangseng is thinking
-    this.broadcastAgentActivity(
-      sessionId,
-      'tangseng',
-      '唐僧',
-      'thinking',
-      '正在分析任务...',
-    );
-
-    // Generate task breakdown
-    const { assignments } = this.chatService.generateTaskBreakdown(content);
-
-    // Generate Tangseng's response
-    const tangsengResponse = this.chatService.generateTangsengTaskResponse(content, assignments);
-
-    // Broadcast Tangseng's analysis
-    this.broadcastMessage(sessionId, {
-      id: `msg-${Date.now()}-tangseng`,
-      sessionId,
-      sender: 'agent',
-      senderId: 'tangseng',
-      senderName: '唐僧',
-      type: 'text',
-      content: tangsengResponse,
-      createdAt: new Date(),
-    });
-
-    // Broadcast Tangseng idle
-    this.broadcastAgentActivity(
-      sessionId,
-      'tangseng',
-      '唐僧',
-      'idle',
-    );
-
-    // Create task records and potentially execute
-    // For now, just broadcast the task assignments
-    for (const assignment of assignments) {
-      this.broadcastMessage(sessionId, {
-        id: `task-${Date.now()}-${assignment.agentId}`,
-        sessionId,
-        sender: 'system',
-        senderId: 'system',
-        senderName: '系统',
-        type: 'task_assignment',
-        content: `任务已分配给 @${assignment.agentName}`,
-        metadata: {
-          taskId: `task-${Date.now()}`,
-          agentId: assignment.agentId,
-          task: assignment.task,
-          priority: assignment.priority,
-        },
-        createdAt: new Date(),
-      });
-    }
-  }
-
-  /**
    * Route message to specific agent(s) mentioned
    */
-  private async routeToSpecificAgent(sessionId: string, parsedMessage: ParsedMessage): Promise<void> {
+  private async routeToSpecificAgent(sessionId: string, parsedMessage: ParsedMessage, workingDirectory: string): Promise<void> {
     const primaryAgentId = parsedMessage.primaryAgent!;
 
     // Special handling for Tangseng (master) - he's a coordinator, not an executor
     if (primaryAgentId === 'tangseng') {
-      await this.tangsengAgent?.processUserMessage(sessionId, parsedMessage.cleanedContent);
+      await this.tangsengAgent?.processUserMessage(sessionId, parsedMessage.cleanedContent, workingDirectory);
       return;
     }
 
@@ -236,7 +211,7 @@ export class WebSocketService implements OnModuleInit {
 
     if (!agent) {
       // Fallback to Tangseng agent
-      await this.tangsengAgent?.processUserMessage(sessionId, parsedMessage.cleanedContent);
+      await this.tangsengAgent?.processUserMessage(sessionId, parsedMessage.cleanedContent, workingDirectory);
       return;
     }
 
@@ -250,12 +225,13 @@ export class WebSocketService implements OnModuleInit {
     );
 
     try {
-      // Execute task through the agent
+      // Execute task through the agent with proper working directory
       const context = {
         sessionId,
         taskId: `task-${Date.now()}`,
         subtaskId: `subtask-${Date.now()}`,
-        workingDirectory: process.cwd(),
+        workingDirectory,
+        sessionWorkingDirectory: workingDirectory,
         prompt: taskPrompt,
       };
 
@@ -437,6 +413,11 @@ export class WebSocketService implements OnModuleInit {
    */
   broadcastMessage(sessionId: string, message: Message): void {
     this.emitToSession(sessionId, 'message', message);
+
+    // Save message to Redis history
+    this.redisService.addMessageToHistory(sessionId, message).catch(err => {
+      this.logger.error(`Failed to save message to Redis: ${err}`);
+    });
   }
 
   /**

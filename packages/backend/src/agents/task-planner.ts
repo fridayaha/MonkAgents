@@ -1,20 +1,46 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { spawn } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 import { AgentRole } from '@monkagents/shared';
 
 /**
- * Task decomposition step
+ * 任务规划步骤 - JSON格式
+ */
+export interface PlannedStep {
+  stepId: number;
+  taskName: string;
+  agentRole: 'tangseng' | 'wukong' | 'bajie' | 'shaseng' | 'rulai';
+  taskDetail: string;
+  dependencies: number[];
+  priority: 'high' | 'medium' | 'low';
+}
+
+/**
+ * 任务规划结果 - JSON格式
+ */
+export interface TaskPlanResult {
+  type: 'task' | 'chat' | 'help';
+  analysis: string;
+  steps: PlannedStep[];
+  summary: string;
+  needsHelp: boolean;
+}
+
+/**
+ * 旧版任务分解步骤（兼容）
  */
 export interface DecompositionStep {
   order: number;
   description: string;
   agentRole: AgentRole;
   agentId: string;
-  dependencies: number[]; // Indices of steps this depends on
+  dependencies: number[];
   estimatedComplexity: 'low' | 'medium' | 'high';
 }
 
 /**
- * Task decomposition result
+ * 旧版任务分解结果（兼容）
  */
 export interface DecompositionResult {
   steps: DecompositionStep[];
@@ -23,270 +49,322 @@ export interface DecompositionResult {
 }
 
 /**
- * Keywords for task type detection
+ * 任务规划提示词模板
  */
-const TASK_KEYWORDS = {
-  executor: ['写', '实现', '编码', '代码', 'bug', '修复', '函数', '组件', 'api', '重构', 'code', 'implement', 'fix', 'create'],
-  inspector: ['检查', '测试', '审查', '验证', '质量', 'review', 'test', 'check', 'verify'],
-  assistant: ['文档', '注释', '格式', '简单', 'document', 'format', 'comment'],
-  advisor: ['架构', '设计', '建议', '复杂', '疑难', 'architecture', 'design', 'complex'],
-};
+const PLANNING_PROMPT = `你是一个任务规划专家。请分析用户的请求，并以JSON格式返回规划结果。
+
+【规划规则】
+1. 如果是闲聊（问候、寒暄、简单问题），设置 type 为 "chat"，steps 为空数组
+2. 如果是可执行任务，设置 type 为 "task"，并分解为具体步骤
+3. 如果任务过于复杂或无法处理，设置 needsHelp 为 true，请求如来佛祖帮助
+
+【智能体角色】
+- tangseng (唐僧): 任务协调、需求分析、结果汇总
+- wukong (孙悟空): 代码编写、调试、技术实现、命令执行
+- bajie (猪八戒): 文档编写、格式整理、辅助任务、结果说明
+- shaseng (沙和尚): 代码审查、测试验证、质量检查、执行确认
+- rulai (如来佛祖): 架构设计、疑难问题、战略指导
+
+【任务分解规则】
+- 代码编写/修改任务：必须包含完整流程
+  1. wukong（实现代码）
+  2. shaseng（审查代码和验证结果）
+  3. bajie（编写使用说明文档）
+- 文件操作任务：由 wukong 执行，shaseng 确认结果，bajie 记录说明
+- 测试任务：由 shaseng 执行测试，bajie 整理报告
+- 文档任务：由 bajie 直接处理
+- 简单命令执行：可由 wukong 直接完成
+
+【重要】代码任务必须包含至少3个步骤：wukong实现 -> shaseng审查 -> bajie文档
+
+【JSON格式】
+{
+  "type": "task" | "chat" | "help",
+  "analysis": "任务分析说明",
+  "steps": [
+    {
+      "stepId": 1,
+      "taskName": "任务名称",
+      "agentRole": "智能体ID",
+      "taskDetail": "详细的任务说明（包含具体操作指令）",
+      "dependencies": [],
+      "priority": "high"
+    }
+  ],
+  "summary": "规划总结",
+  "needsHelp": false
+}
+
+【注意】
+- 只返回JSON，不要其他内容
+- stepId 从 1 开始
+- dependencies 是前置步骤的 stepId 数组
+- 确保JSON格式正确
+- taskDetail 必须是具体的操作指令，让智能体知道具体要做什么
+
+用户请求：{task}
+
+请返回JSON格式的规划结果：`;
 
 /**
- * Service for decomposing tasks into subtasks
+ * 服务：任务规划器
+ * 通过唐僧智能体进行智能任务规划
  */
 @Injectable()
 export class TaskPlanner {
   private readonly logger = new Logger(TaskPlanner.name);
 
+  constructor() {}
+
   /**
-   * Decompose a user prompt into execution steps
+   * 智能规划任务 - 通过唐僧智能体CLI调用
+   */
+  async planWithTangseng(userPrompt: string, workingDirectory?: string): Promise<TaskPlanResult> {
+    this.logger.debug(`智能规划任务: ${userPrompt.substring(0, 100)}...`);
+
+    const prompt = PLANNING_PROMPT.replace('{task}', userPrompt);
+
+    try {
+      const result = await this.callClaudeCLI(prompt, workingDirectory);
+      const planResult = this.parsePlanResult(result);
+
+      this.logger.debug(`规划结果: type=${planResult.type}, steps=${planResult.steps.length}`);
+      return planResult;
+    } catch (error) {
+      this.logger.error(`智能规划失败: ${error}`);
+      // 返回默认规划 - 交给孙悟空处理
+      return this.getDefaultPlan(userPrompt);
+    }
+  }
+
+  /**
+   * 创建清理后的环境变量（移除 Claude Code 会话变量以允许嵌套调用）
+   */
+  private getCleanEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    Object.keys(process.env).forEach(key => {
+      // 移除所有 CLAUDECODE 和 CLAUDE_CODE 相关变量
+      if (!key.startsWith('CLAUDECODE') && !key.startsWith('CLAUDE_CODE')) {
+        env[key] = process.env[key] || '';
+      }
+    });
+    return env;
+  }
+
+  /**
+   * 调用 Claude CLI
+   */
+  private async callClaudeCLI(prompt: string, workingDirectory?: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      // Determine the correct claude executable path
+      let claudeCommand = 'claude';
+      if (process.platform === 'win32') {
+        // On Windows, prefer the official installation path (.local/bin/claude.exe)
+        const localBin = path.join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe');
+        const npmClaude = path.join(process.env.APPDATA || '', 'npm', 'claude.cmd');
+
+        // Check which one exists
+        this.logger.debug(`检查 claude 路径: localBin=${localBin}, exists=${fs.existsSync(localBin)}`);
+        this.logger.debug(`检查 claude 路径: npmClaude=${npmClaude}, exists=${fs.existsSync(npmClaude)}`);
+
+        if (fs.existsSync(localBin)) {
+          claudeCommand = localBin;
+        } else if (fs.existsSync(npmClaude)) {
+          claudeCommand = npmClaude;
+        }
+      }
+
+      this.logger.debug(`使用 claude 路径: ${claudeCommand}`);
+      this.logger.debug(`工作目录参数: ${workingDirectory}`);
+      this.logger.debug(`当前进程目录: ${process.cwd()}`);
+
+      const env = this.getCleanEnv();
+      this.logger.debug(`清理后环境变量数量: ${Object.keys(env).length}`);
+      this.logger.debug(`被移除的 CLAUDE 变量: ${Object.keys(process.env).filter(k => k.startsWith('CLAUDE')).join(', ') || '无'}`);
+
+      // Resolve working directory to absolute path
+      let actualWorkingDir = workingDirectory
+        ? (path.isAbsolute(workingDirectory) ? workingDirectory : path.resolve(process.cwd(), workingDirectory))
+        : process.cwd();
+
+      // Ensure working directory exists, otherwise fall back to cwd
+      if (!fs.existsSync(actualWorkingDir)) {
+        this.logger.warn(`工作目录不存在: ${actualWorkingDir}，使用当前目录: ${process.cwd()}`);
+        actualWorkingDir = process.cwd();
+      }
+      this.logger.debug(`实际工作目录: ${actualWorkingDir}`);
+
+      const proc = spawn(claudeCommand, [
+        '-p',
+        '--output-format', 'text',
+      ], {
+        cwd: actualWorkingDir,
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: false,  // Don't use shell when we have the exact path
+      });
+
+      // Write prompt to stdin only
+      if (proc.stdin) {
+        proc.stdin.write(prompt);
+        proc.stdin.end();
+      }
+
+      let output = '';
+      let error = '';
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        output += data.toString();
+      });
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        if (!text.includes('[TAIL]') && !text.includes('[WATCH]')) {
+          error += text;
+        }
+      });
+
+      proc.on('close', (code: number) => {
+        if (code === 0) {
+          resolve(output);
+        } else {
+          reject(new Error(`CLI failed with code ${code}: ${error}`));
+        }
+      });
+
+      proc.on('error', (err: Error) => {
+        reject(err);
+      });
+
+      // 设置超时
+      setTimeout(() => {
+        proc.kill();
+        reject(new Error('CLI timeout'));
+      }, 60000);
+    });
+  }
+
+  /**
+   * 解析规划结果
+   */
+  private parsePlanResult(result: string): TaskPlanResult {
+    // 尝试提取JSON
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON found in result');
+    }
+
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      // 验证并规范化
+      const planResult: TaskPlanResult = {
+        type: parsed.type || 'task',
+        analysis: parsed.analysis || '',
+        steps: (parsed.steps || []).map((step: any, index: number) => ({
+          stepId: step.stepId || index + 1,
+          taskName: step.taskName || `步骤${index + 1}`,
+          agentRole: this.normalizeAgentRole(step.agentRole),
+          taskDetail: step.taskDetail || step.description || '',
+          dependencies: step.dependencies || [],
+          priority: step.priority || 'medium',
+        })),
+        summary: parsed.summary || '',
+        needsHelp: parsed.needsHelp || false,
+      };
+
+      return planResult;
+    } catch (e) {
+      throw new Error(`Failed to parse JSON: ${e}`);
+    }
+  }
+
+  /**
+   * 规范化智能体角色名称
+   */
+  private normalizeAgentRole(role: string): 'tangseng' | 'wukong' | 'bajie' | 'shaseng' | 'rulai' {
+    const roleMap: Record<string, 'tangseng' | 'wukong' | 'bajie' | 'shaseng' | 'rulai'> = {
+      'tangseng': 'tangseng',
+      '唐僧': 'tangseng',
+      'master': 'tangseng',
+      'wukong': 'wukong',
+      '孙悟空': 'wukong',
+      'executor': 'wukong',
+      'bajie': 'bajie',
+      '猪八戒': 'bajie',
+      'assistant': 'bajie',
+      'shaseng': 'shaseng',
+      '沙和尚': 'shaseng',
+      '沙僧': 'shaseng',
+      'inspector': 'shaseng',
+      'rulai': 'rulai',
+      '如来': 'rulai',
+      '如来佛祖': 'rulai',
+      'advisor': 'rulai',
+    };
+    return roleMap[role?.toLowerCase()] || 'wukong';
+  }
+
+  /**
+   * 获取默认规划（降级方案）
+   */
+  private getDefaultPlan(userPrompt: string): TaskPlanResult {
+    return {
+      type: 'task',
+      analysis: '任务规划服务暂时不可用，使用默认分配',
+      steps: [
+        {
+          stepId: 1,
+          taskName: '执行任务',
+          agentRole: 'wukong',
+          taskDetail: userPrompt,
+          dependencies: [],
+          priority: 'medium',
+        },
+      ],
+      summary: '默认分配给孙悟空执行',
+      needsHelp: false,
+    };
+  }
+
+  /**
+   * 将新的规划结果转换为旧版格式（兼容）
+   */
+  convertToDecompositionResult(planResult: TaskPlanResult): DecompositionResult {
+    const roleToAgentRole: Record<string, AgentRole> = {
+      'tangseng': 'master',
+      'wukong': 'executor',
+      'bajie': 'assistant',
+      'shaseng': 'inspector',
+      'rulai': 'advisor',
+    };
+
+    const steps: DecompositionStep[] = planResult.steps.map((step, index) => ({
+      order: index,
+      description: step.taskDetail,
+      agentRole: roleToAgentRole[step.agentRole] || 'executor',
+      agentId: step.agentRole,
+      dependencies: step.dependencies.map(d => d - 1), // 转换为0-based索引
+      estimatedComplexity: step.priority === 'high' ? 'high' : step.priority === 'low' ? 'low' : 'medium',
+    }));
+
+    return {
+      steps,
+      summary: planResult.summary,
+      requiresReview: planResult.needsHelp || planResult.steps.length > 3,
+    };
+  }
+
+  /**
+   * 旧版分解方法（兼容）
    */
   async decompose(userPrompt: string): Promise<DecompositionResult> {
-    this.logger.debug(`Decomposing task: ${userPrompt.substring(0, 100)}...`);
-
-    // Analyze the task
-    const taskType = this.analyzeTaskType(userPrompt);
-    const complexity = this.estimateComplexity(userPrompt);
-
-    // Generate decomposition based on task type
-    const steps = this.generateSteps(userPrompt, taskType, complexity);
-
-    const result: DecompositionResult = {
-      steps,
-      summary: this.generateSummary(steps),
-      requiresReview: complexity === 'high' || taskType === 'mixed',
-    };
-
-    this.logger.debug(`Decomposed into ${steps.length} steps`);
-    return result;
+    const planResult = await this.planWithTangseng(userPrompt);
+    return this.convertToDecompositionResult(planResult);
   }
 
   /**
-   * Analyze the type of task
-   */
-  private analyzeTaskType(prompt: string): 'coding' | 'review' | 'document' | 'mixed' | 'other' {
-    const lowerPrompt = prompt.toLowerCase();
-
-    const executorMatches = TASK_KEYWORDS.executor.filter(k => lowerPrompt.includes(k)).length;
-    const inspectorMatches = TASK_KEYWORDS.inspector.filter(k => lowerPrompt.includes(k)).length;
-    const assistantMatches = TASK_KEYWORDS.assistant.filter(k => lowerPrompt.includes(k)).length;
-    const advisorMatches = TASK_KEYWORDS.advisor.filter(k => lowerPrompt.includes(k)).length;
-
-    const maxMatches = Math.max(executorMatches, inspectorMatches, assistantMatches, advisorMatches);
-
-    if (maxMatches === 0) {
-      return 'other';
-    }
-
-    // Check for mixed task
-    const matchCounts = [executorMatches, inspectorMatches, assistantMatches, advisorMatches];
-    const significantMatches = matchCounts.filter(c => c > 0).length;
-
-    if (significantMatches > 1) {
-      return 'mixed';
-    }
-
-    if (executorMatches === maxMatches) return 'coding';
-    if (inspectorMatches === maxMatches) return 'review';
-    if (assistantMatches === maxMatches) return 'document';
-    return 'other';
-  }
-
-  /**
-   * Estimate task complexity
-   */
-  private estimateComplexity(prompt: string): 'low' | 'medium' | 'high' {
-    const lowerPrompt = prompt.toLowerCase();
-
-    // High complexity indicators
-    const highComplexityKeywords = ['架构', '系统', '多个', '复杂', '集成', '迁移', 'architecture', 'system', 'complex', 'multiple'];
-    if (highComplexityKeywords.some(k => lowerPrompt.includes(k))) {
-      return 'high';
-    }
-
-    // Low complexity indicators
-    const lowComplexityKeywords = ['简单', '小', '单个', '快速', 'simple', 'small', 'quick', 'minor'];
-    if (lowComplexityKeywords.some(k => lowerPrompt.includes(k))) {
-      return 'low';
-    }
-
-    // Medium complexity by default for coding tasks
-    if (prompt.length > 200 || lowerPrompt.includes('重构') || lowerPrompt.includes('refactor')) {
-      return 'medium';
-    }
-
-    return 'low';
-  }
-
-  /**
-   * Generate execution steps based on task type and complexity
-   */
-  private generateSteps(
-    _prompt: string,
-    taskType: string,
-    complexity: 'low' | 'medium' | 'high',
-  ): DecompositionStep[] {
-    const steps: DecompositionStep[] = [];
-    let order = 0;
-
-    // Step 1: Analysis (always by Master/Tangseng)
-    steps.push({
-      order: order++,
-      description: '分析任务需求，确定执行方案',
-      agentRole: 'master',
-      agentId: 'tangseng',
-      dependencies: [],
-      estimatedComplexity: 'low',
-    });
-
-    switch (taskType) {
-      case 'coding':
-        // Coding workflow
-        steps.push({
-          order: order++,
-          description: '执行代码编写/修改任务',
-          agentRole: 'executor',
-          agentId: 'wukong',
-          dependencies: [0],
-          estimatedComplexity: complexity,
-        });
-
-        // Add testing step for medium/high complexity
-        if (complexity !== 'low') {
-          steps.push({
-            order: order++,
-            description: '编写或执行测试用例',
-            agentRole: 'inspector',
-            agentId: 'shaseng',
-            dependencies: [1],
-            estimatedComplexity: 'low',
-          });
-        }
-
-        // Add review step
-        steps.push({
-          order: order++,
-          description: '代码审查和质量检查',
-          agentRole: 'inspector',
-          agentId: 'bajie',
-          dependencies: [complexity !== 'low' ? 2 : 1],
-          estimatedComplexity: 'low',
-        });
-        break;
-
-      case 'review':
-        steps.push({
-          order: order++,
-          description: '执行代码审查',
-          agentRole: 'inspector',
-          agentId: 'bajie',
-          dependencies: [0],
-          estimatedComplexity: 'medium',
-        });
-        break;
-
-      case 'document':
-        steps.push({
-          order: order++,
-          description: '编写文档或注释',
-          agentRole: 'assistant',
-          agentId: 'bajie',
-          dependencies: [0],
-          estimatedComplexity: 'low',
-        });
-        break;
-
-      case 'mixed':
-        // For mixed tasks, break down further
-        steps.push({
-          order: order++,
-          description: '执行主要开发任务',
-          agentRole: 'executor',
-          agentId: 'wukong',
-          dependencies: [0],
-          estimatedComplexity: 'medium',
-        });
-
-        steps.push({
-          order: order++,
-          description: '编写相关文档',
-          agentRole: 'assistant',
-          agentId: 'bajie',
-          dependencies: [1],
-          estimatedComplexity: 'low',
-        });
-
-        steps.push({
-          order: order++,
-          description: '全面质量检查和测试',
-          agentRole: 'inspector',
-          agentId: 'shaseng',
-          dependencies: [1, 2],
-          estimatedComplexity: 'medium',
-        });
-
-        steps.push({
-          order: order++,
-          description: '最终审查',
-          agentRole: 'inspector',
-          agentId: 'bajie',
-          dependencies: [3],
-          estimatedComplexity: 'low',
-        });
-        break;
-
-      default:
-        // For unknown tasks, ask advisor
-        steps.push({
-          order: order++,
-          description: '分析复杂任务，提供执行建议',
-          agentRole: 'advisor',
-          agentId: 'rulai',
-          dependencies: [0],
-          estimatedComplexity: 'medium',
-        });
-    }
-
-    // Final step: Summary by Master
-    steps.push({
-      order: order++,
-      description: '汇总执行结果，生成总结报告',
-      agentRole: 'master',
-      agentId: 'tangseng',
-      dependencies: [order - 2],
-      estimatedComplexity: 'low',
-    });
-
-    return steps;
-  }
-
-  /**
-   * Generate summary of decomposition
-   */
-  private generateSummary(steps: DecompositionStep[]): string {
-    const agentCount = new Set(steps.map(s => s.agentId)).size;
-    const roles = [...new Set(steps.map(s => this.getRoleName(s.agentRole)))];
-
-    return `任务已分解为 ${steps.length} 个步骤，涉及 ${agentCount} 个智能体（${roles.join('、')}）`;
-  }
-
-  /**
-   * Get Chinese role name
-   */
-  private getRoleName(role: AgentRole): string {
-    const names: Record<AgentRole, string> = {
-      master: '唐僧',
-      executor: '孙悟空',
-      inspector: '沙和尚',
-      assistant: '猪八戒',
-      advisor: '如来佛祖',
-    };
-    return names[role] || role;
-  }
-
-  /**
-   * Get agent ID by role
+   * 获取智能体ID
    */
   getAgentByRole(role: AgentRole): string {
     const mapping: Record<AgentRole, string> = {
@@ -300,19 +378,16 @@ export class TaskPlanner {
   }
 
   /**
-   * Determine if task needs human review
+   * 判断是否需要人工审核
    */
   needsHumanReview(prompt: string, complexity: 'low' | 'medium' | 'high'): boolean {
     const lowerPrompt = prompt.toLowerCase();
 
-    // Always need review for high complexity
     if (complexity === 'high') return true;
 
-    // Need review for security-related tasks
     const securityKeywords = ['安全', '权限', '密码', '认证', 'security', 'auth', 'password', 'permission'];
     if (securityKeywords.some(k => lowerPrompt.includes(k))) return true;
 
-    // Need review for data-related tasks
     const dataKeywords = ['数据库', '删除', '迁移', 'database', 'delete', 'migration'];
     if (dataKeywords.some(k => lowerPrompt.includes(k))) return true;
 

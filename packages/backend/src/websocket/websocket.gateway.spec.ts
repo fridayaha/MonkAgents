@@ -5,6 +5,7 @@ import { TangsengAgent } from '../agents/tangseng.agent';
 import { TasksService } from '../tasks/tasks.service';
 import { TaskPlanner } from '../agents/task-planner';
 import { AgentsService } from '../agents/agents.service';
+import { SessionService } from '../session/session.service';
 import { Socket } from 'socket.io';
 
 describe('WebSocketGateway', () => {
@@ -46,6 +47,10 @@ describe('WebSocketGateway', () => {
     selectBestAgent: jest.fn(),
   };
 
+  const mockSessionService = {
+    findOne: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -71,6 +76,10 @@ describe('WebSocketGateway', () => {
         {
           provide: AgentsService,
           useValue: mockAgentsService,
+        },
+        {
+          provide: SessionService,
+          useValue: mockSessionService,
         },
       ],
     }).compile();

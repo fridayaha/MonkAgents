@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
+import { RedisModule } from './redis/redis.module';
 import { CliModule } from './cli/cli.module';
 import { AgentsModule } from './agents/agents.module';
 import { SessionModule } from './session/session.module';
@@ -14,6 +15,9 @@ import { DebugModule } from './debug/debug.module';
   imports: [
     // Database
     DatabaseModule,
+
+    // Redis Cache
+    RedisModule,
 
     // Configuration
     ConfigModule,

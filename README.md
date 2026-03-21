@@ -23,7 +23,8 @@ MonkAgents 是一个创新的多智能体协作平台，采用中国古典名著
 - 📝 **配置化架构** - 人设、任务匹配、执行提示完全由 YAML 配置驱动
 - 💬 **实时通信** - WebSocket 支持实时消息推送和流式输出
 - 📝 **会话管理** - 支持多会话、工作目录配置
-- 🗄️ **数据持久化** - SQLite 数据库存储任务、消息、检查点等
+- 🗄️ **数据持久化** - 支持 MySQL 和 SQLite 数据库
+- 🔧 **目录浏览** - 前端可选择服务器端工作目录
 - ⚙️ **灵活配置** - YAML 格式的系统和智能体配置
 - 🎨 **现代前端** - 三栏式响应式界面
 
@@ -66,6 +67,26 @@ cd packages/frontend && npm run dev
 
 后端 API 运行在 http://localhost:3000。
 
+### 配置数据库
+
+默认使用 SQLite，无需额外配置。如需使用 MySQL：
+
+```yaml
+# configs/system.yaml
+database:
+  type: mysql
+  host: localhost
+  port: 3306
+  username: root
+  password: your_password
+  database: monkagents
+```
+
+创建 MySQL 数据库：
+```bash
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS monkagents CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+```
+
 ### 测试
 
 ```bash
@@ -102,7 +123,8 @@ MonkAgents/
 │   │       │   └── rulai.agent.ts           # 如来佛祖智能体
 │   │       ├── session/   # 会话模块
 │   │       ├── websocket/ # WebSocket 模块
-│   │       └── cli/       # CLI 进程管理
+│   │       ├── cli/       # CLI 进程管理
+│   │       └── debug/     # 调试接口
 │   └── shared/            # 共享包
 │       └── src/
 │           ├── types/     # 类型定义
@@ -136,6 +158,8 @@ MonkAgents/
 | GET | /api/sessions | 获取会话列表 |
 | GET | /api/sessions/:id | 获取会话详情 |
 | DELETE | /api/sessions/:id | 删除会话 |
+| GET | /api/debug/spawn/test | 测试 CLI 调用 |
+| GET | /api/debug/fs/browse | 浏览服务器目录 |
 
 ### WebSocket 事件
 
@@ -234,7 +258,7 @@ executionPrompt:
 
 ### 后端
 - **框架**: NestJS 10
-- **数据库**: SQLite + TypeORM
+- **数据库**: SQLite / MySQL + TypeORM
 - **实时通信**: Socket.io
 - **配置管理**: YAML (js-yaml)
 - **日志**: Pino
@@ -291,6 +315,22 @@ executionPrompt:
 - [ ] 定时任务调度器
 - [ ] Checkpoint 保存与恢复
 - [ ] 分层记忆管理
+
+## 常见问题
+
+### spawn ENOENT 错误
+
+如果遇到 `spawn ENOENT` 错误，请检查：
+
+1. **工作目录是否存在** - 创建会话时指定的工作目录必须是服务器上存在的绝对路径
+2. **Claude CLI 是否安装** - 确保已安装 Claude CLI 并在 PATH 中
+3. **嵌套调用限制** - Claude CLI 不允许在 Claude Code 会话中直接调用，代码已处理此问题
+
+### 工作目录配置
+
+- 前端创建会话时需要输入**完整的绝对路径**（如 `D:\workspace\MonkAgents`）
+- 可以点击"浏览"按钮通过服务器端目录浏览器选择
+- 相对路径可能导致 spawn 失败
 
 ## 贡献指南
 

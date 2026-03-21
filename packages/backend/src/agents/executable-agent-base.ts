@@ -1,5 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { spawn, ChildProcess } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 import {
   AgentConfig,
   AgentStatus,
@@ -18,6 +20,8 @@ export interface AgentExecutionContext {
   subtaskId: string;
   workingDirectory: string;
   prompt: string;
+  /** 会话配置的工作目录（用户指定的项目根目录） */
+  sessionWorkingDirectory?: string;
 }
 
 /**
@@ -43,6 +47,8 @@ const DEFAULT_CONFIG = {
 /**
  * Base class for executable agents that can run CLI commands
  * All behavior is driven by configuration - no hardcoded task matching
+ *
+ * 参考: https://code.claude.com/docs/zh-CN/sub-agents
  */
 export abstract class ExecutableAgentBase {
   protected readonly logger: Logger;
@@ -171,38 +177,55 @@ export abstract class ExecutableAgentBase {
    * Combines persona with execution prompt configuration
    */
   protected getSystemPrompt(): string {
-    let prompt = this.config.persona;
-
-    // Add additional instructions if configured
-    if (this.config.executionPrompt?.additionalInstructions) {
-      prompt += `\n\n重要提示：\n${this.config.executionPrompt.additionalInstructions}`;
-    }
-
-    return prompt;
+    return this.config.persona;
   }
 
   /**
    * Build the full prompt for CLI execution
+   * Includes persona, task context, and execution instructions
    */
   protected buildPrompt(task: string, context?: AgentExecutionContext): string {
-    const parts = [this.getSystemPrompt()];
+    const parts: string[] = [];
 
-    if (context) {
-      parts.push(`\n当前工作目录: ${context.workingDirectory}`);
+    // 1. Add persona (人设提示词)
+    parts.push(this.getSystemPrompt());
+
+    // 2. Add working directory context
+    if (context?.sessionWorkingDirectory) {
+      parts.push(`\n【工作目录】\n当前项目根目录: ${context.sessionWorkingDirectory}`);
+      parts.push(`所有文件操作应在此目录下进行。`);
     }
 
-    // Use task template if configured
+    // 3. Add execution instructions
+    parts.push(`\n【执行指令】`);
+    parts.push(`请立即执行以下任务，使用可用的工具完成操作。`);
+    parts.push(`执行完成后简要报告结果，不要只是回复消息。`);
+
+    // 4. Add additional instructions if configured
+    if (this.config.executionPrompt?.additionalInstructions) {
+      parts.push(`\n【重要提示】\n${this.config.executionPrompt.additionalInstructions}`);
+    }
+
+    // 5. Add task description
     if (this.config.executionPrompt?.taskTemplate) {
       parts.push(`\n${this.config.executionPrompt.taskTemplate.replace('{task}', task)}`);
     } else {
-      parts.push(`\n请执行以下任务:\n${task}`);
+      parts.push(`\n【当前任务】\n${task}`);
     }
 
-    // Add checklist if configured
+    // 6. Add checklist if configured
     if (this.config.executionPrompt?.checklist && this.config.executionPrompt.checklist.length > 0) {
-      parts.push('\n\n注意事项：');
+      parts.push('\n【注意事项】');
       this.config.executionPrompt.checklist.forEach((item, i) => {
         parts.push(`${i + 1}. ${item}`);
+      });
+    }
+
+    // 7. Add boundaries reminder
+    if (this.config.boundaries && this.config.boundaries.length > 0) {
+      parts.push('\n【工作边界】');
+      this.config.boundaries.forEach((boundary) => {
+        parts.push(`- ${boundary}`);
       });
     }
 
@@ -210,15 +233,60 @@ export abstract class ExecutableAgentBase {
   }
 
   /**
+   * Build CLI arguments based on configuration
+   * Prompt will be sent via stdin
+   */
+  protected buildCliArgs(): string[] {
+    const baseArgs = [...this.config.cli.args];
+
+    // Add permission mode if configured
+    if (this.config.permissionMode && this.config.permissionMode !== 'default') {
+      baseArgs.push('--permission-mode', this.config.permissionMode);
+    }
+
+    // Add max turns if configured
+    if (this.config.maxTurns) {
+      baseArgs.push('--max-turns', String(this.config.maxTurns));
+    }
+
+    // Add tools configuration
+    if (this.config.tools && this.config.tools.length > 0) {
+      // Tools are allowed by default, no need to specify
+    }
+
+    if (this.config.disallowedTools && this.config.disallowedTools.length > 0) {
+      baseArgs.push('--disallowedTools', this.config.disallowedTools.join(','));
+    }
+
+    // Note: Prompt will be sent via stdin, not as argument
+    return baseArgs;
+  }
+
+  /**
    * Execute a task using CLI
+   * Optimized based on spawnClaudeAgent pattern
    */
   async execute(
     context: AgentExecutionContext,
     callbacks?: AgentExecutionCallbacks,
   ): Promise<CliExecutionResult> {
-    const { sessionId, workingDirectory, prompt } = context;
+    const { sessionId, workingDirectory, prompt, sessionWorkingDirectory } = context;
+
+    // Resolve working directory to absolute path
+    let effectiveWorkingDir = sessionWorkingDirectory || workingDirectory || process.cwd();
+    if (!path.isAbsolute(effectiveWorkingDir)) {
+      effectiveWorkingDir = path.resolve(process.cwd(), effectiveWorkingDir);
+    }
+
+    // Ensure working directory exists, otherwise fall back to cwd
+    if (!fs.existsSync(effectiveWorkingDir)) {
+      this.logger.warn(`工作目录不存在: ${effectiveWorkingDir}，使用当前目录: ${process.cwd()}`);
+      effectiveWorkingDir = process.cwd();
+    }
 
     this.logger.log(`执行任务: ${prompt.substring(0, 50)}...`);
+    this.logger.debug(`工作目录: ${effectiveWorkingDir}`);
+
     this.status = 'executing';
     this.isShuttingDown = false;
     this.lastActivity = Date.now();
@@ -230,24 +298,47 @@ export abstract class ExecutableAgentBase {
     this.startActivityCheck(sessionId, callbacks);
 
     return new Promise((resolve, reject) => {
-      const { command, args } = this.config.cli;
-      const fullPrompt = this.buildPrompt(prompt, context);
+      // Determine the correct claude executable path
+      let actualCommand = this.config.cli.command;
+      if (process.platform === 'win32' && actualCommand === 'claude') {
+        // On Windows, prefer the official installation path (.local/bin/claude.exe)
+        const localBin = path.join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe');
+        const npmClaude = path.join(process.env.APPDATA || '', 'npm', 'claude.cmd');
 
-      this.logger.debug(`Starting CLI: ${command} ${args.join(' ')}`);
+        // Check which one exists
+        if (fs.existsSync(localBin)) {
+          actualCommand = localBin;
+        } else if (fs.existsSync(npmClaude)) {
+          actualCommand = npmClaude;
+        }
+      }
+
+      const fullPrompt = this.buildPrompt(prompt, context);
+      const args = this.buildCliArgs();
+
+      this.logger.debug(`Starting CLI: ${actualCommand} ${args.join(' ')} [prompt via stdin]`);
 
       // Prepare environment - remove CLAUDECODE vars to allow nested execution
-      const env = { ...process.env };
-      Object.keys(env).forEach(key => {
-        if (key.startsWith('CLAUDECODE') || key.startsWith('CLAUDE_CODE')) {
-          delete env[key];
+      // This is critical for running Claude CLI inside Claude Code session
+      const env: Record<string, string> = {};
+      Object.keys(process.env).forEach(key => {
+        if (!key.startsWith('CLAUDECODE') && !key.startsWith('CLAUDE_CODE')) {
+          env[key] = process.env[key] || '';
         }
       });
 
-      this.currentProcess = spawn(command, [...args, fullPrompt], {
-        cwd: workingDirectory || process.cwd(),
+      this.currentProcess = spawn(actualCommand, args, {
+        cwd: effectiveWorkingDir,
         env,
-        stdio: ['inherit', 'pipe', 'pipe'],  // inherit stdin, pipe stdout/stderr
+        stdio: ['pipe', 'pipe', 'pipe'],  // pipe stdin to send prompt
+        shell: false,  // Don't use shell when we have the exact path
       });
+
+      // Write prompt to stdin for better handling of multi-line content
+      if (this.currentProcess.stdin) {
+        this.currentProcess.stdin.write(fullPrompt);
+        this.currentProcess.stdin.end();
+      }
 
       let output = '';
       let error = '';
@@ -275,7 +366,10 @@ export abstract class ExecutableAgentBase {
         this.updateActivity();
         const text = data.toString();
         error += text;
-        this.logger.debug(`CLI stderr: ${text.substring(0, 100)}...`);
+        // Filter out noise logs
+        if (!text.includes('[TAIL]') && !text.includes('[WATCH]')) {
+          this.logger.debug(`CLI stderr: ${text.substring(0, 100)}...`);
+        }
       });
 
       // Handle process close

@@ -1,6 +1,9 @@
 import { Controller, Get, Param } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { spawn } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 import { Task } from '../database/entities/task.entity';
 import { ExecutionLog } from '../database/entities/execution-log.entity';
 
@@ -158,5 +161,172 @@ export class DebugController {
       totalTokensUsed,
       totalApiCalls,
     };
+  }
+
+  /**
+   * Debug spawn issue
+   * GET /api/debug/spawn/test
+   */
+  @Get('spawn/test')
+  async testSpawn(): Promise<{
+    platform: string;
+    claudePath: string;
+    localBinExists: boolean;
+    npmClaudeExists: boolean;
+    claudeVars: string[];
+    cleanEnvCount: number;
+    spawnError?: string;
+    spawnOutput?: string;
+  }> {
+    // Check platform
+    const platform = process.platform;
+
+    // Check claude paths
+    const localBin = path.join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe');
+    const npmClaude = path.join(process.env.APPDATA || '', 'npm', 'claude.cmd');
+
+    const localBinExists = fs.existsSync(localBin);
+    const npmClaudeExists = fs.existsSync(npmClaude);
+
+    // Check CLAUDECODE vars
+    const claudeVars = Object.keys(process.env).filter(
+      key => key.startsWith('CLAUDECODE') || key.startsWith('CLAUDE_CODE')
+    );
+
+    // Get clean env
+    const cleanEnv: Record<string, string> = {};
+    Object.keys(process.env).forEach(key => {
+      if (!key.startsWith('CLAUDECODE') && !key.startsWith('CLAUDE_CODE')) {
+        cleanEnv[key] = process.env[key] || '';
+      }
+    });
+
+    // Determine claude path
+    let claudePath = 'claude';
+    if (platform === 'win32') {
+      if (localBinExists) {
+        claudePath = localBin;
+      } else if (npmClaudeExists) {
+        claudePath = npmClaude;
+      }
+    }
+
+    // Try to spawn
+    let spawnError: string | undefined;
+    let spawnOutput: string | undefined;
+
+    try {
+      const result = await new Promise<string>((resolve, reject) => {
+        const proc = spawn(claudePath, ['-p', '--output-format', 'text', '测试'], {
+          cwd: process.cwd(),
+          env: cleanEnv,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: false,
+        });
+
+        let output = '';
+        let error = '';
+
+        if (proc.stdin) {
+          proc.stdin.write('测试');
+          proc.stdin.end();
+        }
+
+        proc.stdout?.on('data', (data: Buffer) => {
+          output += data.toString();
+        });
+
+        proc.stderr?.on('data', (data: Buffer) => {
+          error += data.toString();
+        });
+
+        proc.on('error', (err: Error) => {
+          reject(err);
+        });
+
+        proc.on('close', (code: number) => {
+          if (code === 0) {
+            resolve(output);
+          } else {
+            reject(new Error(`Exit code ${code}: ${error}`));
+          }
+        });
+
+        // Timeout
+        setTimeout(() => {
+          proc.kill();
+          reject(new Error('Timeout'));
+        }, 30000);
+      });
+
+      spawnOutput = result.substring(0, 200);
+    } catch (err) {
+      spawnError = (err as Error).message;
+    }
+
+    return {
+      platform,
+      claudePath,
+      localBinExists,
+      npmClaudeExists,
+      claudeVars,
+      cleanEnvCount: Object.keys(cleanEnv).length,
+      spawnError,
+      spawnOutput,
+    };
+  }
+
+  /**
+   * Browse directories on server
+   * GET /api/debug/fs/browse?path=xxx
+   */
+  @Get('fs/browse')
+  async browseDirectories(
+    @Param('path') dirPath?: string,
+  ): Promise<{
+    currentPath: string;
+    parentPath: string | null;
+    directories: Array<{ name: string; path: string }>;
+    error?: string;
+  }> {
+    try {
+      // Default to user home or current directory
+      const startPath = dirPath || process.env.USERPROFILE || process.cwd();
+      const resolvedPath = path.resolve(startPath);
+
+      if (!fs.existsSync(resolvedPath)) {
+        return {
+          currentPath: resolvedPath,
+          parentPath: null,
+          directories: [],
+          error: '目录不存在',
+        };
+      }
+
+      const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
+      const directories = entries
+        .filter(entry => entry.isDirectory())
+        .filter(entry => !entry.name.startsWith('.')) // Hide hidden folders
+        .map(entry => ({
+          name: entry.name,
+          path: path.join(resolvedPath, entry.name),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      const parentPath = path.dirname(resolvedPath);
+
+      return {
+        currentPath: resolvedPath,
+        parentPath: parentPath !== resolvedPath ? parentPath : null,
+        directories,
+      };
+    } catch (error) {
+      return {
+        currentPath: dirPath || '',
+        parentPath: null,
+        directories: [],
+        error: (error as Error).message,
+      };
+    }
   }
 }

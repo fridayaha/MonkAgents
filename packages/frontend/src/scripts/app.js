@@ -13,6 +13,12 @@ class App {
     this.tasks = [];
     this.scheduledTasks = [];
 
+    // Mention menu state
+    this.mentionMenuVisible = false;
+    this.mentionStartIndex = -1;
+    this.mentionQuery = '';
+    this.selectedMentionIndex = 0;
+
     this.init();
   }
 
@@ -23,6 +29,8 @@ class App {
     await this.loadSessions();
     await this.loadTasks();
     this.initWebSocket();
+    this.initMentionMenu();
+    this.autoSelectRecentSession();
   }
 
   // ==================== Navigation ====================
@@ -75,24 +83,14 @@ class App {
       this.createSession();
     });
 
-    // Browse directory button
-    document.getElementById('browse-dir-btn')?.addEventListener('click', () => {
-      document.getElementById('dir-picker')?.click();
+    // Random title button
+    document.getElementById('random-title-btn')?.addEventListener('click', () => {
+      this.generateRandomTitle();
     });
 
-    // Directory picker change
-    document.getElementById('dir-picker')?.addEventListener('change', (e) => {
-      const files = e.target.files;
-      if (files && files.length > 0) {
-        // Get the directory path from the first file's webkitRelativePath
-        const firstFile = files[0];
-        const relativePath = firstFile.webkitRelativePath;
-        const dirName = relativePath.split('/')[0];
-
-        // Try to get the full path if available
-        const fullPath = firstFile.path || dirName;
-        document.getElementById('working-dir-input').value = fullPath;
-      }
+    // Browse directory button - use server-side directory browser
+    document.getElementById('browse-dir-btn')?.addEventListener('click', async () => {
+      await this.showDirectoryBrowser();
     });
 
     // Send message
@@ -145,6 +143,25 @@ class App {
 
     document.getElementById('create-schedule-btn')?.addEventListener('click', () => {
       this.createScheduledTask();
+    });
+
+    // Modal close buttons (X buttons in modal headers)
+    document.querySelectorAll('.modal-close-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const modalId = btn.dataset.modal;
+        if (modalId) {
+          this.hideModal(modalId);
+        }
+      });
+    });
+
+    // Click outside modal to close
+    document.querySelectorAll('.modal').forEach(modal => {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          modal.classList.add('hidden');
+        }
+      });
     });
   }
 
@@ -275,8 +292,8 @@ class App {
     if (!this.currentSession?.messages?.length) {
       container.innerHTML = `
         <div class="welcome-message">
-          <h3>👋 开始与智能体对话</h3>
-          <p>输入你的问题或任务</p>
+          <h3>👑 欢迎使用 MonkAgents</h3>
+          <p>唐明皇陛下，选择或创建一个会话开始与智能体协作</p>
           <p style="font-size: 0.875rem; color: #999; margin-top: 16px;">
             提示：使用 @智能体名称 可以召唤特定智能体<br>
             例如：@孙悟空 写一个函数
@@ -442,12 +459,13 @@ class App {
       document.getElementById('session-title').value = '';
     } catch (error) {
       console.error('Failed to create session:', error);
-      alert('创建会话失败');
+      this.showAlert('创建会话失败', '错误');
     }
   }
 
   async deleteSession(sessionId) {
-    if (!confirm('确定要删除此会话吗？')) return;
+    const confirmed = await this.showConfirm('确定要删除此会话吗？', '删除确认');
+    if (!confirmed) return;
 
     try {
       await api.deleteSession(sessionId);
@@ -458,7 +476,8 @@ class App {
         this.updateChatHeader();
         document.getElementById('messages-container').innerHTML = `
           <div class="welcome-message">
-            <h3>👋 选择或创建一个会话</h3>
+            <h3>👑 欢迎使用 MonkAgents</h3>
+            <p>唐明皇陛下，选择或创建一个会话开始与智能体协作</p>
           </div>
         `;
       }
@@ -466,7 +485,7 @@ class App {
       this.renderSessions();
     } catch (error) {
       console.error('Failed to delete session:', error);
-      alert('删除会话失败');
+      this.showAlert('删除会话失败', '错误');
     }
   }
 
@@ -497,7 +516,7 @@ class App {
     }
 
     if (!this.currentSession) {
-      alert('请先创建或选择一个会话');
+      this.showAlert('请先创建或选择一个会话', '提示');
       return;
     }
 
@@ -513,7 +532,7 @@ class App {
       sessionId: this.currentSession.id,
       sender: 'user',
       senderId: 'user',
-      senderName: '你',
+      senderName: '唐明皇',
       type: 'text',
       content,
       createdAt: new Date(),
@@ -554,7 +573,7 @@ class App {
     const repeat = document.getElementById('schedule-repeat').value;
 
     if (!title || !time) {
-      alert('请填写任务标题和执行时间');
+      this.showAlert('请填写任务标题和执行时间', '提示');
       return;
     }
 
@@ -578,12 +597,13 @@ class App {
       document.getElementById('schedule-description').value = '';
     } catch (error) {
       console.error('Failed to create scheduled task:', error);
-      alert('创建定时任务失败');
+      this.showAlert('创建定时任务失败', '错误');
     }
   }
 
   async deleteScheduledTask(taskId) {
-    if (!confirm('确定要删除此定时任务吗？')) return;
+    const confirmed = await this.showConfirm('确定要删除此定时任务吗？', '删除确认');
+    if (!confirmed) return;
 
     try {
       await api.request(`/api/scheduled-tasks/${taskId}`, { method: 'DELETE' });
@@ -596,10 +616,10 @@ class App {
   async runScheduledTask(taskId) {
     try {
       await api.request(`/api/scheduled-tasks/${taskId}/run`, { method: 'POST' });
-      alert('任务已触发执行');
+      this.showAlert('任务已触发执行', '成功');
     } catch (error) {
       console.error('Failed to run scheduled task:', error);
-      alert('执行失败');
+      this.showAlert('执行失败', '错误');
     }
   }
 
@@ -608,7 +628,7 @@ class App {
   async showDebugPage() {
     const taskId = this.currentSession?.currentTaskId;
     if (!taskId) {
-      alert('当前没有正在执行的任务');
+      this.showAlert('当前没有正在执行的任务', '提示');
       return;
     }
 
@@ -618,7 +638,7 @@ class App {
       this.showModal('debug-page');
     } catch (error) {
       console.error('Failed to load debug info:', error);
-      alert('获取调试信息失败');
+      this.showAlert('获取调试信息失败', '错误');
     }
   }
 
@@ -725,6 +745,29 @@ class App {
         createdAt: new Date(),
       });
     });
+
+    // Handle session history from Redis
+    wsClient.on('session_history', ({ sessionId, messages, count }) => {
+      console.log(`Received ${count} history messages for session ${sessionId}`);
+
+      // Only load history if this is the current session
+      if (this.currentSession?.id === sessionId) {
+        // Initialize messages array if needed
+        if (!this.currentSession.messages) {
+          this.currentSession.messages = [];
+        }
+
+        // Add history messages that aren't already in the session
+        const existingIds = new Set(this.currentSession.messages.map(m => m.id));
+        const newMessages = messages.filter(m => !existingIds.has(m.id));
+
+        if (newMessages.length > 0) {
+          // Prepend history messages
+          this.currentSession.messages = [...newMessages, ...this.currentSession.messages];
+          this.renderMessages();
+        }
+      }
+    });
   }
 
   updateAgentStatus(agentId, status, action) {
@@ -787,6 +830,77 @@ class App {
     document.getElementById(modalId)?.classList.add('hidden');
   }
 
+  // ==================== Custom Dialog ====================
+
+  /**
+   * Show a custom alert dialog
+   * @param {string} message - Message to display
+   * @param {string} title - Dialog title (optional)
+   */
+  async showAlert(message, title = '提示') {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('custom-dialog-modal');
+      const titleEl = document.getElementById('dialog-title');
+      const messageEl = document.getElementById('dialog-message');
+      const confirmBtn = document.getElementById('dialog-confirm-btn');
+      const cancelBtn = document.getElementById('dialog-cancel-btn');
+
+      titleEl.textContent = title;
+      messageEl.textContent = message;
+      cancelBtn.classList.add('hidden');
+      confirmBtn.textContent = '确定';
+
+      const handleConfirm = () => {
+        this.hideModal('custom-dialog-modal');
+        confirmBtn.removeEventListener('click', handleConfirm);
+        resolve(true);
+      };
+
+      confirmBtn.addEventListener('click', handleConfirm);
+      this.showModal('custom-dialog-modal');
+    });
+  }
+
+  /**
+   * Show a custom confirm dialog
+   * @param {string} message - Message to display
+   * @param {string} title - Dialog title (optional)
+   * @returns {Promise<boolean>} - True if confirmed, false if cancelled
+   */
+  async showConfirm(message, title = '确认') {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('custom-dialog-modal');
+      const titleEl = document.getElementById('dialog-title');
+      const messageEl = document.getElementById('dialog-message');
+      const confirmBtn = document.getElementById('dialog-confirm-btn');
+      const cancelBtn = document.getElementById('dialog-cancel-btn');
+
+      titleEl.textContent = title;
+      messageEl.textContent = message;
+      cancelBtn.classList.remove('hidden');
+      confirmBtn.textContent = '确定';
+      cancelBtn.textContent = '取消';
+
+      const handleConfirm = () => {
+        this.hideModal('custom-dialog-modal');
+        confirmBtn.removeEventListener('click', handleConfirm);
+        cancelBtn.removeEventListener('click', handleCancel);
+        resolve(true);
+      };
+
+      const handleCancel = () => {
+        this.hideModal('custom-dialog-modal');
+        confirmBtn.removeEventListener('click', handleConfirm);
+        cancelBtn.removeEventListener('click', handleCancel);
+        resolve(false);
+      };
+
+      confirmBtn.addEventListener('click', handleConfirm);
+      cancelBtn.addEventListener('click', handleCancel);
+      this.showModal('custom-dialog-modal');
+    });
+  }
+
   getRoleName(role) {
     const roles = {
       master: '师父',
@@ -804,7 +918,7 @@ class App {
   }
 
   getMessageAvatar(msg) {
-    if (msg.sender === 'user') return '👤';
+    if (msg.sender === 'user') return '👑';
     if (msg.sender === 'system') return '⚙';
 
     const agent = this.agents.find(a => a.id === msg.senderId);
@@ -891,6 +1005,357 @@ class App {
     if (diff < 604800000) return `${Math.floor(diff / 86400000)} 天前`;
 
     return d.toLocaleDateString('zh-CN');
+  }
+
+  // ==================== Mention Menu ====================
+
+  initMentionMenu() {
+    const input = document.getElementById('message-input');
+    const mentionMenu = document.getElementById('mention-menu');
+
+    if (!input || !mentionMenu) return;
+
+    input.addEventListener('input', (e) => {
+      this.handleMentionInput(e);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (this.mentionMenuVisible) {
+        this.handleMentionKeydown(e);
+      }
+    });
+
+    // Close mention menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.input-container')) {
+        this.hideMentionMenu();
+      }
+    });
+  }
+
+  handleMentionInput(e) {
+    const input = e.target;
+    const value = input.value;
+    const cursorPos = input.selectionStart;
+
+    // Find @ symbol before cursor
+    let atIndex = -1;
+    for (let i = cursorPos - 1; i >= 0; i--) {
+      if (value[i] === '@') {
+        atIndex = i;
+        break;
+      }
+      if (value[i] === ' ' || value[i] === '\n') {
+        break;
+      }
+    }
+
+    if (atIndex !== -1 && atIndex < cursorPos) {
+      this.mentionStartIndex = atIndex;
+      this.mentionQuery = value.substring(atIndex + 1, cursorPos).toLowerCase();
+      this.showMentionMenu();
+    } else {
+      this.hideMentionMenu();
+    }
+  }
+
+  handleMentionKeydown(e) {
+    const mentionList = document.querySelector('.mention-menu-list');
+    const items = mentionList?.querySelectorAll('.mention-item');
+
+    if (!items || items.length === 0) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        this.selectedMentionIndex = (this.selectedMentionIndex + 1) % items.length;
+        this.updateMentionSelection(items);
+        break;
+
+      case 'ArrowUp':
+        e.preventDefault();
+        this.selectedMentionIndex = (this.selectedMentionIndex - 1 + items.length) % items.length;
+        this.updateMentionSelection(items);
+        break;
+
+      case 'Enter':
+      case 'Tab':
+        e.preventDefault();
+        this.selectMentionItem(items[this.selectedMentionIndex]);
+        break;
+
+      case 'Escape':
+        e.preventDefault();
+        this.hideMentionMenu();
+        break;
+    }
+  }
+
+  showMentionMenu() {
+    const mentionMenu = document.getElementById('mention-menu');
+    const mentionList = mentionMenu?.querySelector('.mention-menu-list');
+
+    if (!mentionMenu || !mentionList) return;
+
+    // Filter agents based on query
+    const filteredAgents = this.agents.filter(agent => {
+      const name = agent.config?.name?.toLowerCase() || '';
+      const id = agent.id?.toLowerCase() || '';
+      const query = this.mentionQuery.toLowerCase();
+      return name.includes(query) || id.includes(query);
+    });
+
+    if (filteredAgents.length === 0) {
+      this.hideMentionMenu();
+      return;
+    }
+
+    // Render menu items
+    mentionList.innerHTML = filteredAgents.map((agent, index) => `
+      <div class="mention-item ${index === 0 ? 'selected' : ''}" data-agent-id="${agent.id}">
+        <span class="mention-item-emoji">${agent.config?.emoji || '🤖'}</span>
+        <div class="mention-item-info">
+          <div class="mention-item-name">${agent.config?.name || agent.id}</div>
+          <div class="mention-item-role">${this.getRoleName(agent.config?.role)}</div>
+        </div>
+      </div>
+    `).join('');
+
+    // Bind click events
+    mentionList.querySelectorAll('.mention-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this.selectMentionItem(item);
+      });
+    });
+
+    this.selectedMentionIndex = 0;
+    this.mentionMenuVisible = true;
+    mentionMenu.classList.remove('hidden');
+  }
+
+  hideMentionMenu() {
+    const mentionMenu = document.getElementById('mention-menu');
+    if (mentionMenu) {
+      mentionMenu.classList.add('hidden');
+    }
+    this.mentionMenuVisible = false;
+    this.mentionStartIndex = -1;
+    this.mentionQuery = '';
+  }
+
+  updateMentionSelection(items) {
+    items.forEach((item, index) => {
+      item.classList.toggle('selected', index === this.selectedMentionIndex);
+    });
+
+    // Scroll selected item into view
+    const selectedItem = items[this.selectedMentionIndex];
+    if (selectedItem) {
+      selectedItem.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  selectMentionItem(item) {
+    if (!item) return;
+
+    const agentId = item.dataset.agentId;
+    const agent = this.agents.find(a => a.id === agentId);
+    const agentName = agent?.config?.name || agentId;
+
+    const input = document.getElementById('message-input');
+    const value = input.value;
+
+    // Replace @query with @agentName
+    const beforeMention = value.substring(0, this.mentionStartIndex);
+    const afterCursor = value.substring(input.selectionStart);
+
+    input.value = beforeMention + `@${agentName} ` + afterCursor;
+
+    // Set cursor position after the mention
+    const newPos = beforeMention.length + agentName.length + 2;
+    input.setSelectionRange(newPos, newPos);
+    input.focus();
+
+    this.hideMentionMenu();
+  }
+
+  // ==================== Random Title Generation ====================
+
+  async generateRandomTitle() {
+    const titleInput = document.getElementById('session-title');
+    const randomBtn = document.getElementById('random-title-btn');
+
+    if (!titleInput || !randomBtn) return;
+
+    // Show loading state
+    randomBtn.disabled = true;
+    randomBtn.textContent = '⏳';
+
+    try {
+      const response = await api.request('/utils/random-title', {
+        method: 'POST',
+      });
+
+      if (response && response.title) {
+        titleInput.value = response.title;
+      }
+    } catch (error) {
+      console.error('Failed to generate random title:', error);
+      // Fallback: use a preset title from 西游记
+      const fallbackTitles = [
+        '三打白骨精',
+        '大闹天宫',
+        '真假美猴王',
+        '三借芭蕉扇',
+        '偷吃人参果',
+        '智取红孩儿',
+        '流沙河收沙僧',
+        '高老庄收八戒',
+        '女儿国奇遇',
+        '火焰山受阻',
+        '通天河遇鼋',
+        '狮驼岭斗妖',
+        '盘丝洞遇险',
+        '无底洞降鼠',
+        '比丘国救儿',
+      ];
+      const randomTitle = fallbackTitles[Math.floor(Math.random() * fallbackTitles.length)];
+      titleInput.value = randomTitle;
+    } finally {
+      randomBtn.disabled = false;
+      randomBtn.textContent = '🎲';
+    }
+  }
+
+  // ==================== Directory Browser ====================
+
+  async showDirectoryBrowser() {
+    const input = document.getElementById('working-dir-input');
+    const currentPath = input?.value || '';
+
+    // Create modal for directory browsing
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 600px; width: 90%;">
+        <div class="modal-header">
+          <h3>📁 选择工作目录</h3>
+          <button class="btn btn-icon modal-close-btn">✕</button>
+        </div>
+        <div style="margin-bottom: 16px;">
+          <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <input type="text" id="dir-path-input" placeholder="输入路径" value="${currentPath}" style="flex: 1;">
+            <button id="dir-go-btn" class="btn btn-secondary">转到</button>
+          </div>
+          <div id="dir-list" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
+            <div style="padding: 20px; text-align: center; color: #999;">加载中...</div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="dir-cancel-btn" class="btn btn-secondary">取消</button>
+          <button id="dir-select-btn" class="btn btn-primary">选择当前目录</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const dirList = modal.querySelector('#dir-list');
+    const pathInput = modal.querySelector('#dir-path-input');
+    let selectedPath = currentPath;
+
+    // Load directory listing
+    const loadDirectory = async (path) => {
+      try {
+        const response = await api.request(`/debug/fs/browse?path=${encodeURIComponent(path)}`);
+        selectedPath = response.currentPath;
+        pathInput.value = selectedPath;
+
+        let html = '';
+        if (response.error) {
+          html = `<div style="padding: 20px; text-align: center; color: #d32f2f;">${response.error}</div>`;
+        } else {
+          if (response.parentPath) {
+            html += `<div class="dir-item" data-path="${response.parentPath}" style="padding: 8px; cursor: pointer; border-bottom: 1px solid #eee;">
+              <span style="color: #666;">📁 ..</span>
+            </div>`;
+          }
+          if (response.directories.length === 0) {
+            html += `<div style="padding: 20px; text-align: center; color: #999;">空目录</div>`;
+          } else {
+            for (const dir of response.directories) {
+              html += `<div class="dir-item" data-path="${dir.path}" style="padding: 8px; cursor: pointer; border-bottom: 1px solid #eee;">
+                <span>📁 ${dir.name}</span>
+              </div>`;
+            }
+          }
+        }
+        dirList.innerHTML = html;
+
+        // Add click handlers
+        dirList.querySelectorAll('.dir-item').forEach(item => {
+          item.addEventListener('click', () => {
+            loadDirectory(item.dataset.path);
+          });
+          item.addEventListener('mouseenter', () => {
+            item.style.backgroundColor = '#f5f5f5';
+          });
+          item.addEventListener('mouseleave', () => {
+            item.style.backgroundColor = '';
+          });
+        });
+      } catch (error) {
+        dirList.innerHTML = `<div style="padding: 20px; text-align: center; color: #d32f2f;">加载失败: ${error.message}</div>`;
+      }
+    };
+
+    // Event handlers
+    modal.querySelector('.modal-close-btn').addEventListener('click', () => {
+      modal.remove();
+    });
+
+    modal.querySelector('#dir-cancel-btn').addEventListener('click', () => {
+      modal.remove();
+    });
+
+    modal.querySelector('#dir-select-btn').addEventListener('click', () => {
+      if (input) {
+        input.value = selectedPath;
+      }
+      modal.remove();
+    });
+
+    modal.querySelector('#dir-go-btn').addEventListener('click', () => {
+      loadDirectory(pathInput.value);
+    });
+
+    pathInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        loadDirectory(pathInput.value);
+      }
+    });
+
+    // Close on outside click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+
+    // Load initial directory
+    loadDirectory(currentPath);
+  }
+
+  // ==================== Auto Select Recent Session ====================
+
+  autoSelectRecentSession() {
+    if (this.sessions && this.sessions.length > 0) {
+      // Sessions are already sorted by createdAt desc
+      // Select the most recent one
+      const mostRecentSession = this.sessions[0];
+      this.selectSession(mostRecentSession.id);
+    }
   }
 }
 
