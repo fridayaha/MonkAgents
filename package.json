@@ -16,6 +16,8 @@
     "stop:backend": "node scripts/stop-backend.js",
     "stop:frontend": "node scripts/stop-frontend.js",
     "restart": "node scripts/stop-all.js && node scripts/start-all.js",
+    "restart:backend": "node scripts/stop-backend.js && npm run start:dev",
+    "restart:frontend": "node scripts/stop-frontend.js && npm run start:frontend",
     "status": "node scripts/status.js",
     "test": "npm run test -w @monkagents/shared && npm run test -w @monkagents/backend",
     "test:watch": "npm run test:watch -w @monkagents/backend",

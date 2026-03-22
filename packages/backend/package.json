@@ -4,7 +4,7 @@
   "description": "MonkAgents backend server",
   "main": "./dist/main.js",
   "scripts": {
-    "build": "nest build",
+    "build": "rm -f tsconfig.tsbuildinfo && nest build",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
@@ -12,7 +12,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",
@@ -35,7 +35,6 @@
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "socket.io": "^4.7.0",
-    "sqlite3": "^5.1.6",
     "typeorm": "^0.3.19",
     "uuid": "^9.0.0",
     "yaml": "^2.3.0"

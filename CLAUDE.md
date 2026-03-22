@@ -26,12 +26,44 @@ npm run build
 ```
 
 ### 开发运行
+
 ```bash
-# 启动后端开发服务器
+# 首次运行需先构建
+npm run build
+
+# 启动后端开发服务器（热重载）
 npm run start:dev -w @monkagents/backend
 
 # 启动前端开发服务器
-cd packages/frontend && npm run dev
+npm run start:frontend
+
+# 同时启动前后端
+npm run start:all
+```
+
+### 服务管理
+
+```bash
+# 查看服务状态
+npm run status
+
+# 重启所有服务
+npm run restart
+
+# 单独重启后端
+npm run restart:backend
+
+# 单独重启前端
+npm run restart:frontend
+
+# 停止所有服务
+npm run stop
+
+# 单独停止后端
+npm run stop:backend
+
+# 单独停止前端
+npm run stop:frontend
 ```
 
 ### 测试
@@ -161,8 +193,17 @@ MonkAgents/
 
 ```yaml
 database:
-  type: sqlite
-  path: ./data/sqlite/monkagents.db
+  type: mysql
+  host: localhost
+  port: 3306
+  username: root
+  password: root
+  database: monkagents
+
+redis:
+  host: localhost
+  port: 6379
+  keyPrefix: 'monkagents:'
 
 server:
   port: 3000
@@ -194,7 +235,7 @@ logging:
 - [x] Monorepo 项目结构
 - [x] 共享类型和工具包
 - [x] NestJS 后端框架
-- [x] SQLite 数据库和实体
+- [x] MySQL 数据库和实体
 - [x] YAML 配置系统
 - [x] WebSocket 通信模块
 - [x] 会话管理功能
@@ -211,7 +252,7 @@ logging:
 
 ### 第三阶段 (待实现)
 
-- [ ] Redis 集成
+- [x] Redis 集成
 - [ ] Docker 部署
 - [ ] 定时任务调度器
 - [ ] Checkpoint 保存与恢复
