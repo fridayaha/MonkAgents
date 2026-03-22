@@ -8,11 +8,13 @@ import {
 /**
  * Parser for Claude CLI stream-json output
  * Handles NDJSON format: {"type":"...", ...}\n{"type":"...", ...}\n
+ * Supports both regular messages and stream_event messages (with --include-partial-messages)
  */
 export class CliOutputParser {
   private readonly logger = new Logger(CliOutputParser.name);
   private buffer: string = '';
   private sessionId: string | null = null;
+  private currentMessageId: string | null = null;
 
   /**
    * Parse a chunk of CLI output
@@ -33,6 +35,9 @@ export class CliOutputParser {
       try {
         const message = JSON.parse(trimmed) as CliMessage;
         const parsedEvents = this.parseMessage(message);
+        if (parsedEvents.length > 0) {
+          this.logger.debug(`Parsed ${parsedEvents.length} events from message type: ${message.type}`);
+        }
         events.push(...parsedEvents);
       } catch (error) {
         // If JSON parse fails, might be incomplete or non-JSON output
@@ -57,6 +62,9 @@ export class CliOutputParser {
     switch (message.type) {
       case 'system':
         events.push(...this.parseSystemMessage(message));
+        break;
+      case 'stream_event':
+        events.push(...this.parseStreamEvent(message));
         break;
       case 'assistant':
         events.push(...this.parseAssistantMessage(message));
@@ -90,15 +98,104 @@ export class CliOutputParser {
   }
 
   /**
+   * Parse stream_event message (with --include-partial-messages)
+   * This is the true streaming format
+   */
+  private parseStreamEvent(message: CliMessage): CliOutputEvent[] {
+    const events: CliOutputEvent[] = [];
+    const event = message.event;
+    if (!event) return events;
+
+    // Update session ID if available
+    if (message.session_id) {
+      this.sessionId = message.session_id;
+    }
+
+    switch (event.type) {
+      case 'message_start':
+        if (event.message?.id) {
+          this.currentMessageId = event.message.id;
+          this.logger.debug(`Message started: ${this.currentMessageId}`);
+        }
+        break;
+
+      case 'content_block_start':
+        if (event.content_block) {
+          // Handle thinking block start
+          if (event.content_block.type === 'thinking') {
+            events.push({
+              type: 'thinking',
+              content: '',
+              isPartial: true,
+              messageId: this.currentMessageId || undefined,
+              sessionId: this.sessionId || undefined,
+            });
+          }
+        }
+        break;
+
+      case 'content_block_delta':
+        if (event.delta) {
+          const delta = event.delta;
+
+          // Text delta - actual content streaming
+          if (delta.type === 'text_delta' && delta.text) {
+            this.logger.debug(`Text delta: "${delta.text.substring(0, 30)}..." (messageId: ${this.currentMessageId})`);
+            events.push({
+              type: 'text',
+              content: delta.text,
+              isPartial: true,
+              messageId: this.currentMessageId || undefined,
+              sessionId: this.sessionId || undefined,
+            });
+          }
+          // Thinking delta - extended thinking streaming
+          else if (delta.type === 'thinking_delta' && delta.thinking) {
+            events.push({
+              type: 'thinking',
+              content: delta.thinking,
+              isPartial: true,
+              messageId: this.currentMessageId || undefined,
+              sessionId: this.sessionId || undefined,
+            });
+          }
+        }
+        break;
+
+      case 'content_block_stop':
+        // Content block finished
+        break;
+
+      case 'message_stop':
+        // Message completed
+        this.logger.debug(`Message completed: ${this.currentMessageId}`);
+        events.push({
+          type: 'complete',
+          content: '',
+          isComplete: true,
+          messageId: this.currentMessageId || undefined,
+          sessionId: this.sessionId || undefined,
+        });
+        break;
+    }
+
+    return events;
+  }
+
+  /**
    * Parse assistant message with content blocks
+   * Handles both complete and partial messages
    */
   private parseAssistantMessage(message: CliMessage): CliOutputEvent[] {
     const events: CliOutputEvent[] = [];
 
     if (!message.message?.content) return events;
 
+    const isPartial = message.partial === true;
+    const messageId = message.message.id;
+
     for (const block of message.message.content) {
-      const event = this.parseContentBlock(block);
+      const event = this.parseContentBlock(block, isPartial, messageId);
       if (event) {
         events.push(event);
       }
@@ -110,13 +207,24 @@ export class CliOutputParser {
   /**
    * Parse a content block
    */
-  private parseContentBlock(block: CliContentBlock): CliOutputEvent | null {
+  private parseContentBlock(block: CliContentBlock, isPartial: boolean = false, messageId?: string): CliOutputEvent | null {
     switch (block.type) {
       case 'text':
         return {
           type: 'text',
           content: block.text || '',
           sessionId: this.sessionId || undefined,
+          isPartial,
+          messageId,
+        };
+
+      case 'thinking':
+        return {
+          type: 'thinking',
+          content: block.thinking || '',
+          sessionId: this.sessionId || undefined,
+          isPartial,
+          messageId,
         };
 
       case 'tool_use':
@@ -125,6 +233,8 @@ export class CliOutputParser {
           toolName: block.name,
           toolInput: block.input,
           sessionId: this.sessionId || undefined,
+          isPartial,
+          messageId,
         };
 
       case 'tool_result':
@@ -137,6 +247,7 @@ export class CliOutputParser {
           metadata: {
             isError: block.is_error,
           },
+          messageId,
         };
 
       default:
@@ -197,6 +308,7 @@ export class CliOutputParser {
   reset(): void {
     this.buffer = '';
     this.sessionId = null;
+    this.currentMessageId = null;
   }
 
   /**

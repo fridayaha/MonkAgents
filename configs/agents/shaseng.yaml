@@ -48,6 +48,7 @@ cli:
     - -p
     - --output-format
     - stream-json
+    - --include-partial-messages
     - --verbose
 
 # 允许使用的工具（检查者角色，只读为主）

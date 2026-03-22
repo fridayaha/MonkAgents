@@ -466,18 +466,8 @@ export class TangsengAgent extends ExecutableAgentBase implements OnModuleInit {
         };
 
         await agent.execute(context, {
-          onText: (_sessionId: string, text: string) => {
-            this.wsService!.emitToSession(sessionId, 'message', {
-              id: `msg-${Date.now()}`,
-              sessionId,
-              sender: 'agent',
-              senderId: agentId,
-              senderName: agentName,
-              type: 'text',
-              content: text,
-              createdAt: new Date(),
-            });
-          },
+          // Note: onText callback removed - streaming is handled by agent's broadcastStreamingText
+          // which properly appends chunks to the same message
           onToolUse: (_sessionId: string, name: string, input: Record<string, unknown>) => {
             this.wsService!.emitToSession(sessionId, 'message', {
               id: `tool-${Date.now()}`,

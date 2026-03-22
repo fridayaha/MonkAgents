@@ -324,16 +324,28 @@ class App {
           <span class="tool-icon">🔧</span>
           <span class="tool-name">${toolName}</span>
         </div>
-        <div class="tool-input">${this.escapeHtml(JSON.stringify(toolInput, null, 2))}</div>
+        <div class="tool-input"><pre><code>${this.escapeHtml(JSON.stringify(toolInput, null, 2))}</code></pre></div>
       `;
     }
 
-    // Special rendering for status
+    // Special rendering for status - only show running status with animation
     if (msg.type === 'status') {
+      // Only render status message if it has content
+      if (!msg.content || msg.content.trim() === '') {
+        return '';
+      }
+      // Check if this is a running/executing status
+      const isRunning = msg.content.includes('执行中') ||
+                        msg.content.includes('处理中') ||
+                        msg.content.includes('思考中') ||
+                        msg.content.includes('正在');
+      const statusIcon = isRunning ? '🐎' : '✅';
+      const animationClass = isRunning ? 'status-running' : '';
+
       return `
-        <div class="message status">
+        <div class="message status ${animationClass}">
           <div class="message-content">
-            <span class="status-spinner"></span>
+            <span class="status-icon">${statusIcon}</span>
             <span>${msg.content}</span>
           </div>
         </div>
@@ -341,7 +353,7 @@ class App {
     }
 
     return `
-      <div class="message ${msg.sender} ${typeClass}">
+      <div class="message ${msg.sender} ${typeClass}" data-msg-id="${msg.id}">
         <div class="message-header">
           <span class="message-avatar ${msg.senderId || ''}">${avatar}</span>
           <span class="message-sender">${msg.senderName}</span>
@@ -526,17 +538,8 @@ class App {
     // Send via WebSocket
     wsClient.sendMessage(this.currentSession.id, content);
 
-    // Add message to UI immediately
-    this.addMessage({
-      id: `temp-${Date.now()}`,
-      sessionId: this.currentSession.id,
-      sender: 'user',
-      senderId: 'user',
-      senderName: '唐明皇',
-      type: 'text',
-      content,
-      createdAt: new Date(),
-    });
+    // Note: Don't add message to UI here - wait for server confirmation
+    // to ensure it's saved to history
   }
 
   addMessage(message) {
@@ -546,8 +549,97 @@ class App {
       this.currentSession.messages = [];
     }
 
-    this.currentSession.messages.push(message);
+    // Check if this is a streaming message (ID starts with "stream-")
+    const isStreaming = message.id && message.id.startsWith('stream-');
+    const isStreamingChunk = message.metadata?.isStreaming === true;
+    const isComplete = message.metadata?.isComplete === true;
+
+    console.log('addMessage:', {
+      id: message.id,
+      isStreaming,
+      isStreamingChunk,
+      isComplete,
+      contentLength: message.content?.length || 0
+    });
+
+    if (isStreaming) {
+      const existingIndex = this.currentSession.messages.findIndex(m => m.id === message.id);
+
+      if (isComplete) {
+        // Streaming complete - mark the message as finalized
+        if (existingIndex >= 0) {
+          // Message already exists, just mark it as complete
+          this.currentSession.messages[existingIndex].type = 'text';
+          delete this.currentSession.messages[existingIndex].metadata?.isStreaming;
+          delete this.currentSession.messages[existingIndex].metadata?.isComplete;
+        }
+        // If no existing message, this complete event has no content, ignore it
+      } else if (isStreamingChunk) {
+        // This is a streaming chunk - append to existing or create new
+        if (existingIndex >= 0) {
+          // Append content to existing streaming message
+          this.currentSession.messages[existingIndex].content += message.content;
+        } else {
+          // First chunk of streaming message
+          this.currentSession.messages.push({
+            ...message,
+            content: message.content,
+            type: 'thinking',
+          });
+        }
+      }
+    } else {
+      // Non-streaming message: check if it's an update or new message
+      const existingIndex = this.currentSession.messages.findIndex(m => m.id === message.id);
+      if (existingIndex >= 0) {
+        // Update existing message (e.g., status update)
+        this.currentSession.messages[existingIndex] = message;
+      } else {
+        // Add new message
+        this.currentSession.messages.push(message);
+      }
+    }
+
     this.renderMessages();
+
+    // Scroll to bottom after rendering
+    const container = document.getElementById('messages-container');
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+
+    // Update session message count in sidebar
+    this.updateSessionMessageCount(this.currentSession.id);
+  }
+
+  updateSessionMessageCount(sessionId) {
+    const sessionItem = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+    if (sessionItem) {
+      const metaEl = sessionItem.querySelector('.session-item-meta');
+      if (metaEl && this.currentSession?.messages) {
+        const count = this.currentSession.messages.filter(m => m.type !== 'status').length;
+        const timeText = metaEl.innerHTML.split('·')[0];
+        metaEl.innerHTML = `${timeText}· ${count} 条消息`;
+      }
+    }
+
+    // Also update the session in the sessions array
+    const session = this.sessions.find(s => s.id === sessionId);
+    if (session && this.currentSession?.messages) {
+      session.messageCount = this.currentSession.messages.filter(m => m.type !== 'status').length;
+    }
+  }
+
+  finalizeStreamingMessages() {
+    if (!this.currentSession?.messages) return;
+
+    // Convert streaming message IDs to permanent IDs
+    // This ensures next execution creates new messages
+    this.currentSession.messages.forEach((msg, index) => {
+      if (msg.id && msg.id.startsWith('stream-')) {
+        msg.id = `msg-${Date.now()}-${index}`;
+      }
+    });
   }
 
   removeLastStatusMessage() {
@@ -620,6 +712,62 @@ class App {
     } catch (error) {
       console.error('Failed to run scheduled task:', error);
       this.showAlert('执行失败', '错误');
+    }
+  }
+
+  // ==================== Task Detail ====================
+
+  async showTaskDetail(taskId) {
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task) {
+      this.showAlert('任务不存在', '错误');
+      return;
+    }
+
+    // Build task detail HTML
+    const subtasksHtml = (task.subtasks || []).map((st, i) => `
+      <div class="task-subtask" style="padding: 8px; background: var(--bg-color); border-radius: 4px; margin-bottom: 4px;">
+        <span style="font-weight: 500;">${i + 1}. ${st.description?.substring(0, 50) || '子任务'}...</span>
+        <span class="task-status ${st.status || 'pending'}" style="font-size: 0.7rem; margin-left: 8px;">
+          ${this.getStatusText(st.status || 'pending')}
+        </span>
+      </div>
+    `).join('');
+
+    const content = `
+      <div style="margin-bottom: 16px;">
+        <strong>任务ID:</strong> ${task.id?.substring(0, 8)}...
+      </div>
+      <div style="margin-bottom: 16px;">
+        <strong>状态:</strong>
+        <span class="task-status ${task.status}">${this.getStatusText(task.status)}</span>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <strong>用户请求:</strong><br>
+        ${this.escapeHtml(task.userPrompt || '无')}
+      </div>
+      <div style="margin-bottom: 16px;">
+        <strong>创建时间:</strong> ${this.formatTime(task.createdAt)}
+      </div>
+      <div>
+        <strong>子任务 (${task.subtasks?.length || 0}):</strong>
+        <div style="margin-top: 8px;">
+          ${subtasksHtml || '<p style="color: var(--text-muted);">无子任务</p>'}
+        </div>
+      </div>
+    `;
+
+    // Update modal content
+    const modal = document.getElementById('debug-page');
+    const modalContent = modal?.querySelector('.modal-content');
+    if (modalContent) {
+      const titleEl = modalContent.querySelector('h3');
+      if (titleEl) titleEl.textContent = '📋 任务详情';
+      const debugContent = document.getElementById('debug-content');
+      if (debugContent) {
+        debugContent.innerHTML = content;
+      }
+      this.showModal('debug-page');
     }
   }
 
@@ -712,8 +860,9 @@ class App {
     });
 
     wsClient.on('message', (message) => {
-      // Handle chat_complete - remove the status loading message
+      // Handle chat_complete - finalize streaming messages
       if (message.type === 'chat_complete') {
+        this.finalizeStreamingMessages();
         this.removeLastStatusMessage();
         return;
       }
@@ -787,27 +936,62 @@ class App {
   }
 
   updateTaskStatus(taskId, status, message) {
-    // If on tasks page, reload tasks
-    if (this.currentPage === 'tasks') {
-      this.loadTasks();
+    // Update task card on tasks page
+    const taskCard = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
+    if (taskCard) {
+      const statusEl = taskCard.querySelector('.task-status');
+      if (statusEl) {
+        statusEl.className = `task-status ${status}`;
+        statusEl.textContent = this.getStatusText(status);
+      }
+    }
+
+    // Update local tasks array
+    const task = this.tasks.find(t => t.id === taskId);
+    if (task) {
+      task.status = status;
+    }
+
+    // If task completed, remove loading status message
+    if (status === 'completed' || status === 'failed') {
+      this.removeLastStatusMessage();
+
+      // Show completion message
+      if (status === 'completed') {
+        this.addMessage({
+          id: `task-done-${Date.now()}`,
+          sessionId: this.currentSession?.id,
+          sender: 'system',
+          senderId: 'system',
+          senderName: '系统',
+          type: 'text',
+          content: '✅ 任务执行完成',
+          createdAt: new Date(),
+        });
+      }
     }
   }
 
   handleStreamChunk(chunk) {
     // Handle streaming output
     if (chunk.eventType === 'text' && chunk.content) {
-      // Find or create a temporary message for streaming
-      const container = document.getElementById('messages-container');
-      const lastMessage = container.querySelector('.message.agent:last-child');
+      // Find existing streaming message or create new one
+      const streamId = `stream-${chunk.agentId || 'unknown'}`;
 
-      if (lastMessage && lastMessage.dataset.streaming === 'true') {
-        const content = lastMessage.querySelector('.message-content');
-        content.textContent += chunk.content;
-        container.scrollTop = container.scrollHeight;
+      if (!this.currentSession?.messages) {
+        this.currentSession.messages = [];
+      }
+
+      // Find existing streaming message
+      let streamMsg = this.currentSession.messages.find(m => m.id === streamId);
+
+      if (streamMsg) {
+        // Append content to existing message
+        streamMsg.content += chunk.content;
       } else {
         // Create new streaming message
-        this.addMessage({
-          id: `stream-${Date.now()}`,
+        streamMsg = {
+          id: streamId,
           sessionId: this.currentSession?.id,
           sender: 'agent',
           senderId: chunk.agentId || 'unknown',
@@ -815,7 +999,17 @@ class App {
           type: 'text',
           content: chunk.content,
           createdAt: new Date(),
-        });
+        };
+        this.currentSession.messages.push(streamMsg);
+      }
+
+      // Re-render messages
+      this.renderMessages();
+
+      // Scroll to bottom
+      const container = document.getElementById('messages-container');
+      if (container) {
+        container.scrollTop = container.scrollHeight;
       }
     }
   }
@@ -963,7 +1157,33 @@ class App {
   formatContent(content) {
     if (!content) return '';
 
-    // Escape HTML
+    // Use marked.js for markdown rendering if available
+    if (typeof marked !== 'undefined') {
+      try {
+        // Configure marked
+        marked.setOptions({
+          breaks: true,
+          gfm: true,
+          highlight: (code, lang) => {
+            if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+              try {
+                return hljs.highlight(code, { language: lang }).value;
+              } catch (e) {
+                // Ignore highlight errors
+              }
+            }
+            return code;
+          }
+        });
+
+        return marked.parse(content);
+      } catch (e) {
+        console.error('Markdown parse error:', e);
+        // Fall through to basic formatting
+      }
+    }
+
+    // Fallback: basic markdown-like formatting
     let formatted = this.escapeHtml(content);
 
     // Code blocks

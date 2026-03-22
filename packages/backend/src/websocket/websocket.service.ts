@@ -130,20 +130,21 @@ export class WebSocketService implements OnModuleInit {
     const workingDirectory = await this.getSessionWorkingDirectory(sessionId);
     this.logger.debug(`Session working directory: ${workingDirectory}`);
 
+    // Save user message to history first
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      sessionId,
+      sender: 'user',
+      senderId: 'user',
+      senderName: '唐明皇',
+      type: 'text',
+      content,
+      createdAt: new Date(),
+    };
+    this.broadcastMessage(sessionId, userMessage);
+
     // Parse message for @mentions
     const parsedMessage = this.mentionService.parseMessage(content);
-
-    // Send acknowledgment with mention info
-    this.emitToSession(sessionId, 'message', {
-      id: `ack-${Date.now()}`,
-      sessionId,
-      sender: 'system',
-      senderId: 'system',
-      senderName: '系统',
-      type: 'status',
-      content: this.getStatusMessage(parsedMessage),
-      createdAt: new Date(),
-    } as Message);
 
     // Check if dependencies are set
     if (!this.tangsengAgent || !this.tasksService) {
@@ -236,18 +237,8 @@ export class WebSocketService implements OnModuleInit {
       };
 
       const result = await agent.execute(context, {
-        onText: (_sessionId: string, text: string) => {
-          this.emitToSession(sessionId, 'message', {
-            id: `msg-${Date.now()}`,
-            sessionId,
-            sender: 'agent',
-            senderId: primaryAgentId,
-            senderName: this.mentionService.getAgentName(primaryAgentId),
-            type: 'text',
-            content: text,
-            createdAt: new Date(),
-          } as Message);
-        },
+        // Note: onText callback removed - streaming is handled by agent's broadcastStreamingText
+        // which properly appends chunks to the same message
         onToolUse: (_sessionId: string, name: string, input: Record<string, unknown>) => {
           this.emitToSession(sessionId, 'message', {
             id: `tool-${Date.now()}`,
@@ -302,17 +293,6 @@ export class WebSocketService implements OnModuleInit {
       this.logger.error(`Agent execution error: ${error}`);
       this.emitError('EXECUTION_ERROR', `执行失败: ${error}`, sessionId);
     }
-  }
-
-  /**
-   * Get status message based on parsed message
-   */
-  private getStatusMessage(parsedMessage: ParsedMessage): string {
-    if (parsedMessage.hasMentions) {
-      const agentNames = parsedMessage.mentions.map(m => m.agentName).join('、');
-      return `已召唤 ${agentNames} 处理您的请求...`;
-    }
-    return '正在处理您的请求...';
   }
 
   /**

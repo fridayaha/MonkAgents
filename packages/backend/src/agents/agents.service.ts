@@ -10,6 +10,7 @@ import { BajieAgent } from './bajie.agent';
 import { ShasengAgent } from './shaseng.agent';
 import { RulaiAgent } from './rulai.agent';
 import { ExecutableAgentBase } from './executable-agent-base';
+import { WebSocketService } from '../websocket/websocket.service';
 
 /**
  * 智能体选择结果
@@ -43,6 +44,18 @@ export class AgentsService implements OnModuleInit {
     this.executableAgents.set('bajie', this.bajieAgent);
     this.executableAgents.set('shaseng', this.shasengAgent);
     this.executableAgents.set('rulai', this.rulaiAgent);
+  }
+
+  /**
+   * Set WebSocket service on all executable agents
+   * Called from WebSocketGateway afterInit
+   */
+  setWebSocketService(wsService: WebSocketService): void {
+    this.wukongAgent.setWebSocketService(wsService);
+    this.bajieAgent.setWebSocketService(wsService);
+    this.shasengAgent.setWebSocketService(wsService);
+    this.rulaiAgent.setWebSocketService(wsService);
+    this.logger.log('WebSocket service set on all agents');
   }
 
   async onModuleInit() {

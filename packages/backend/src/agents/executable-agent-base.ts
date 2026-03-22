@@ -544,7 +544,19 @@ export abstract class ExecutableAgentBase {
 
       case 'text':
         callbacks?.onText?.(sessionId, event.content || '');
-        this.broadcastMessage(sessionId, event.content || '', 'thinking');
+        // For streaming, use message ID from CLI or fall back to agent-based ID
+        if (event.isPartial) {
+          // Partial message - stream with consistent ID
+          this.broadcastStreamingText(sessionId, event.content || '', event.messageId, false);
+        } else {
+          // Complete message - finalize streaming
+          this.broadcastStreamingText(sessionId, event.content || '', event.messageId, true);
+        }
+        break;
+
+      case 'complete':
+        // Message complete - finalize streaming
+        this.broadcastStreamingComplete(sessionId, event.messageId);
         break;
 
       case 'tool_use':
@@ -559,6 +571,62 @@ export abstract class ExecutableAgentBase {
       case 'error':
         this.broadcastError(sessionId, event.error || 'Unknown error');
         break;
+    }
+  }
+
+  /**
+   * Broadcast streaming text with proper message ID tracking
+   */
+  protected broadcastStreamingText(
+    sessionId: string,
+    content: string,
+    messageId?: string,
+    isComplete: boolean = false,
+  ): void {
+    if (this.wsService) {
+      // Use CLI message ID if available, otherwise use agent-based streaming ID
+      const streamId = messageId
+        ? `stream-${messageId}`
+        : `stream-${this.config.id}`;
+
+      this.logger.debug(`Streaming text: streamId=${streamId}, content length=${content.length}, isComplete=${isComplete}`);
+
+      this.wsService.broadcastMessage(sessionId, {
+        id: streamId,
+        sessionId,
+        sender: 'agent',
+        senderId: this.config.id,
+        senderName: this.config.name,
+        type: 'thinking',
+        content,
+        createdAt: new Date(),
+        metadata: { isComplete, isStreaming: true },
+      } as any);
+    }
+  }
+
+  /**
+   * Broadcast streaming complete - finalize the message
+   */
+  protected broadcastStreamingComplete(sessionId: string, messageId?: string): void {
+    if (this.wsService) {
+      const streamId = messageId
+        ? `stream-${messageId}`
+        : `stream-${this.config.id}`;
+
+      this.logger.debug(`Streaming complete: streamId=${streamId}`);
+
+      this.wsService.broadcastMessage(sessionId, {
+        id: streamId,
+        sessionId,
+        sender: 'agent',
+        senderId: this.config.id,
+        senderName: this.config.name,
+        type: 'text',
+        content: '',
+        createdAt: new Date(),
+        metadata: { isComplete: true, isStreaming: false },
+      } as any);
     }
   }
 
@@ -618,8 +686,13 @@ export abstract class ExecutableAgentBase {
    */
   protected broadcastMessage(sessionId: string, content: string, type: string = 'text'): void {
     if (this.wsService) {
+      // For streaming text, use a consistent message ID so frontend can append
+      const messageId = type === 'text' || type === 'thinking'
+        ? `stream-${this.config.id}`  // Fixed ID for streaming
+        : `msg-${Date.now()}`;        // Unique ID for other types
+
       this.wsService.broadcastMessage(sessionId, {
-        id: `msg-${Date.now()}`,
+        id: messageId,
         sessionId,
         sender: 'agent',
         senderId: this.config.id,

@@ -58,6 +58,7 @@ cli:
     - -p
     - --output-format
     - stream-json
+    - --include-partial-messages
     - --verbose
 
 # 允许使用的工具（顾问角色，主要是读取和分析）
