@@ -1,7 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { ExecutableAgentBase, AgentExecutionContext } from './executable-agent-base';
+import { AgentExecutionContext } from './executable-agent-base';
 import { AgentConfig, CliExecutionResult } from '@monkagents/shared';
 import { ConfigService } from '../config/config.service';
+import { BaseAgentService } from './base-agent.service';
 
 /**
  * 猪八戒智能体 - 助手
@@ -9,16 +10,16 @@ import { ConfigService } from '../config/config.service';
  * 所有行为由配置文件驱动
  */
 @Injectable()
-export class BajieAgent extends ExecutableAgentBase implements OnModuleInit {
+export class BajieAgent extends BaseAgentService implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {
     super({} as AgentConfig);
   }
 
-  onModuleInit() {
+  async onModuleInit() {
+    await super.onModuleInit(); // Call parent implementation
     const config = this.configService.getAgentConfig('bajie');
     if (config) {
-      this.config = config;
-      (this.logger as any).context = `${config.name}Agent`;
+      this.initialize(config);
     }
   }
 
@@ -37,17 +38,17 @@ export class BajieAgent extends ExecutableAgentBase implements OnModuleInit {
     this.logger.log(`猪八戒开始执行任务: ${context.prompt.substring(0, 50)}...`);
 
     return super.execute(context, {
-      onInit: (sessionId) => this.logger.debug(`初始化会话: ${sessionId}`),
-      onText: (_, text) => callbacks?.onText?.(text),
-      onToolUse: (_, name, input) => {
+      onInit: (sessionId: string) => this.logger.debug(`初始化会话: ${sessionId}`),
+      onText: (_: string, text: string) => callbacks?.onText?.(text),
+      onToolUse: (_: string, name: string, input: Record<string, unknown>) => {
         this.logger.debug(`使用工具: ${name}`);
         callbacks?.onToolUse?.(name, input);
       },
-      onComplete: (_, result) => {
+      onComplete: (_: string, result: CliExecutionResult) => {
         this.logger.log(`任务完成: ${result.success ? '成功' : '失败'}`);
         callbacks?.onComplete?.(result);
       },
-      onError: (_, error) => {
+      onError: (_: string, error: string) => {
         this.logger.error(`任务失败: ${error}`);
         callbacks?.onError?.(error);
       },

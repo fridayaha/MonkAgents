@@ -1,73 +1,68 @@
 import { Logger } from '@nestjs/common';
-import { spawn, ChildProcess } from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs';
 import {
   AgentConfig,
   AgentStatus,
   CliExecutionResult,
   CliOutputEvent,
 } from '@monkagents/shared';
-import { CliOutputParser } from '../cli/cli.parser';
-import { WebSocketService } from '../websocket/websocket.service';
+import { AgentExecutionContext, AgentExecutionCallbacks, ExecutableAgent } from './interfaces/agent.interface';
+import { CliExecutor, DEFAULT_CLI_EXECUTION_CONFIG, CliExecutionConfig } from './helpers/cli-executor';
 
-/**
- * Context for agent execution
- */
-export interface AgentExecutionContext {
-  sessionId: string;
-  taskId: string;
-  subtaskId: string;
-  workingDirectory: string;
-  prompt: string;
-  /** 会话配置的工作目录（用户指定的项目根目录） */
-  sessionWorkingDirectory?: string;
-}
-
-/**
- * Callbacks for agent execution
- */
-export interface AgentExecutionCallbacks {
-  onInit?: (sessionId: string) => void;
-  onText?: (sessionId: string, text: string) => void;
-  onToolUse?: (sessionId: string, name: string, input: Record<string, unknown>) => void;
-  onComplete?: (sessionId: string, result: CliExecutionResult) => void;
-  onError?: (sessionId: string, error: string) => void;
-}
-
-/**
- * Default configuration for CLI execution
- */
-const DEFAULT_CONFIG = {
-  timeoutMs: 30 * 60 * 1000,        // 30 minutes default timeout
-  activityCheckInterval: 10000,      // Check activity every 10 seconds
-  gracefulShutdownMs: 5000,          // Wait 5 seconds after SIGTERM before SIGKILL
-};
+// 导出类型以便其他模块可以使用
+export { AgentExecutionContext, AgentExecutionCallbacks, ExecutableAgent };
 
 /**
  * Base class for executable agents that can run CLI commands
- * All behavior is driven by configuration - no hardcoded task matching
- *
- * 参考: https://code.claude.com/docs/zh-CN/sub-agents
+ * Separates concerns by using CliExecutor helper class
  */
-export abstract class ExecutableAgentBase {
+export abstract class ExecutableAgentBase implements ExecutableAgent {
   protected readonly logger: Logger;
   protected config: AgentConfig;
   protected status: AgentStatus = 'idle';
-  protected currentProcess: ChildProcess | null = null;
-  protected parser: CliOutputParser;
-  protected wsService: WebSocketService | null = null;
+  protected wsService: any = null; // Using any to avoid circular dependency issues
+  private cliExecutor?: CliExecutor;  // Make it optional initially
+  private executionConfig: CliExecutionConfig;
 
-  // Activity tracking
-  protected lastActivity: number = Date.now();
-  protected activityCheckInterval: NodeJS.Timeout | null = null;
-  protected isShuttingDown: boolean = false;
-  protected timeoutMs: number = DEFAULT_CONFIG.timeoutMs;
-
-  constructor(config: AgentConfig) {
+  constructor(config: AgentConfig, executionConfig?: CliExecutionConfig) {
     this.config = config;
     this.logger = new Logger(`${config.name}Agent`);
-    this.parser = new CliOutputParser();
+    this.executionConfig = executionConfig || DEFAULT_CLI_EXECUTION_CONFIG;
+    // Don't create CliExecutor in constructor since config might not be properly initialized yet
+  }
+
+  /**
+   * Initialize the agent with configuration and setup CliExecutor
+   * Should be called after the agent is properly configured
+   */
+  protected initializeAgent(config: AgentConfig): void {
+    this.config = config;
+    (this.logger as any).context = `${config.name}Agent`;
+    // Now create CliExecutor with properly configured config
+    this.cliExecutor = new CliExecutor(config, this.executionConfig);
+  }
+
+  /**
+   * Ensure CliExecutor is available, lazy initialization
+   */
+  private ensureCliExecutor(): void {
+    if (!this.cliExecutor) {
+      this.logger.warn('CliExecutor not initialized, initializing with current config');
+      this.cliExecutor = new CliExecutor(this.config, this.executionConfig);
+    }
+  }
+
+  /**
+   * Get agent ID
+   */
+  getId(): string {
+    return this.config.id;
+  }
+
+  /**
+   * Get agent name
+   */
+  getName(): string {
+    return this.config.name;
   }
 
   /**
@@ -87,15 +82,8 @@ export abstract class ExecutableAgentBase {
   /**
    * Set WebSocket service for streaming output
    */
-  setWebSocketService(wsService: WebSocketService): void {
+  setWebSocketService(wsService: any): void {
     this.wsService = wsService;
-  }
-
-  /**
-   * Set timeout duration (in milliseconds)
-   */
-  setTimeout(timeoutMs: number): void {
-    this.timeoutMs = timeoutMs;
   }
 
   /**
@@ -233,38 +221,7 @@ export abstract class ExecutableAgentBase {
   }
 
   /**
-   * Build CLI arguments based on configuration
-   * Prompt will be sent via stdin
-   */
-  protected buildCliArgs(): string[] {
-    const baseArgs = [...this.config.cli.args];
-
-    // Add permission mode if configured
-    if (this.config.permissionMode && this.config.permissionMode !== 'default') {
-      baseArgs.push('--permission-mode', this.config.permissionMode);
-    }
-
-    // Add max turns if configured
-    if (this.config.maxTurns) {
-      baseArgs.push('--max-turns', String(this.config.maxTurns));
-    }
-
-    // Add tools configuration
-    if (this.config.tools && this.config.tools.length > 0) {
-      // Tools are allowed by default, no need to specify
-    }
-
-    if (this.config.disallowedTools && this.config.disallowedTools.length > 0) {
-      baseArgs.push('--disallowedTools', this.config.disallowedTools.join(','));
-    }
-
-    // Note: Prompt will be sent via stdin, not as argument
-    return baseArgs;
-  }
-
-  /**
    * Execute a task using CLI
-   * Optimized based on spawnClaudeAgent pattern
    */
   async execute(
     context: AgentExecutionContext,
@@ -272,261 +229,54 @@ export abstract class ExecutableAgentBase {
   ): Promise<CliExecutionResult> {
     const { sessionId, workingDirectory, prompt, sessionWorkingDirectory } = context;
 
-    // Resolve working directory to absolute path
-    let effectiveWorkingDir = sessionWorkingDirectory || workingDirectory || process.cwd();
-    if (!path.isAbsolute(effectiveWorkingDir)) {
-      effectiveWorkingDir = path.resolve(process.cwd(), effectiveWorkingDir);
-    }
-
-    // Ensure working directory exists, otherwise fall back to cwd
-    if (!fs.existsSync(effectiveWorkingDir)) {
-      this.logger.warn(`工作目录不存在: ${effectiveWorkingDir}，使用当前目录: ${process.cwd()}`);
-      effectiveWorkingDir = process.cwd();
-    }
-
-    this.logger.log(`执行任务: ${prompt.substring(0, 50)}...`);
-    this.logger.debug(`工作目录: ${effectiveWorkingDir}`);
+    this.logger.log(`Executing task: ${prompt.substring(0, 50)}...`);
+    this.logger.debug(`Working directory: ${sessionWorkingDirectory || workingDirectory}`);
 
     this.status = 'executing';
-    this.isShuttingDown = false;
-    this.lastActivity = Date.now();
 
     // Broadcast status
     this.broadcastAgentStatus(sessionId, 'executing', '正在执行任务...');
 
+    // Ensure CliExecutor is initialized
+    this.ensureCliExecutor();
+
     // Start activity-based timeout check
-    this.startActivityCheck(sessionId, callbacks);
+    this.cliExecutor!.startActivityCheck();
 
-    return new Promise((resolve, reject) => {
-      // Determine the correct claude executable path
-      let actualCommand = this.config.cli.command;
-      if (process.platform === 'win32' && actualCommand === 'claude') {
-        // On Windows, prefer the official installation path (.local/bin/claude.exe)
-        const localBin = path.join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe');
-        const npmClaude = path.join(process.env.APPDATA || '', 'npm', 'claude.cmd');
-
-        // Check which one exists
-        if (fs.existsSync(localBin)) {
-          actualCommand = localBin;
-        } else if (fs.existsSync(npmClaude)) {
-          actualCommand = npmClaude;
-        }
-      }
-
+    try {
       const fullPrompt = this.buildPrompt(prompt, context);
-      const args = this.buildCliArgs();
 
-      this.logger.debug(`Starting CLI: ${actualCommand} ${args.join(' ')} [prompt via stdin]`);
+      // Define event handler
+      const handleEvent = (event: CliOutputEvent) => {
+        this.handleCliEvent(sessionId, event, callbacks);
+      };
 
-      // Prepare environment - remove CLAUDECODE vars to allow nested execution
-      // This is critical for running Claude CLI inside Claude Code session
-      const env: Record<string, string> = {};
-      Object.keys(process.env).forEach(key => {
-        if (!key.startsWith('CLAUDECODE') && !key.startsWith('CLAUDE_CODE')) {
-          env[key] = process.env[key] || '';
-        }
-      });
+      // Execute via CLI executor
+      const result = await this.cliExecutor!.execute(fullPrompt, sessionWorkingDirectory || workingDirectory, handleEvent);
 
-      this.currentProcess = spawn(actualCommand, args, {
-        cwd: effectiveWorkingDir,
-        env,
-        stdio: ['pipe', 'pipe', 'pipe'],  // pipe stdin to send prompt
-        shell: false,  // Don't use shell when we have the exact path
-      });
+      this.status = 'idle';
+      this.cliExecutor!.stopActivityCheck();
 
-      // Write prompt to stdin for better handling of multi-line content
-      if (this.currentProcess.stdin) {
-        this.currentProcess.stdin.write(fullPrompt);
-        this.currentProcess.stdin.end();
+      if (result.success) {
+        callbacks?.onComplete?.(sessionId, result);
+      } else {
+        callbacks?.onError?.(sessionId, result.error || 'Execution failed');
       }
 
-      let output = '';
-      let error = '';
-      let sessionIdFromCli: string | undefined;
+      // Broadcast final status
+      this.broadcastAgentStatus(sessionId, 'idle');
 
-      // Handle stdout - updates activity and parses events
-      this.currentProcess.stdout?.on('data', (data: Buffer) => {
-        this.updateActivity();
-        const chunk = data.toString();
-        output += chunk;
+      return result;
+    } catch (error) {
+      this.status = 'idle';
+      this.cliExecutor!.stopActivityCheck();
 
-        // Parse events
-        const events = this.parser.parseChunk(chunk);
-        for (const event of events) {
-          this.handleCliEvent(sessionId, event, callbacks);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      callbacks?.onError?.(sessionId, errorMessage);
+      this.broadcastAgentStatus(sessionId, 'idle');
 
-          if (event.sessionId) {
-            sessionIdFromCli = event.sessionId;
-          }
-        }
-      });
-
-      // Handle stderr - also updates activity
-      this.currentProcess.stderr?.on('data', (data: Buffer) => {
-        this.updateActivity();
-        const text = data.toString();
-        error += text;
-        // Filter out noise logs
-        if (!text.includes('[TAIL]') && !text.includes('[WATCH]')) {
-          this.logger.debug(`CLI stderr: ${text.substring(0, 100)}...`);
-        }
-      });
-
-      // Handle process close
-      this.currentProcess.on('close', (code: number) => {
-        this.handleProcessClose(sessionId, code, output, error, sessionIdFromCli, callbacks, resolve);
-      });
-
-      // Handle process error
-      this.currentProcess.on('error', (err: Error) => {
-        this.handleProcessError(sessionId, err, callbacks, reject);
-      });
-    });
-  }
-
-  /**
-   * Start activity-based timeout check
-   */
-  protected startActivityCheck(
-    sessionId: string,
-    callbacks?: AgentExecutionCallbacks,
-  ): void {
-    this.activityCheckInterval = setInterval(() => {
-      if (this.isShuttingDown) return;
-
-      const idleTime = Date.now() - this.lastActivity;
-      if (idleTime > this.timeoutMs) {
-        this.logger.warn(`Timeout: ${this.timeoutMs / 60000} minutes without activity`);
-        this.gracefulShutdown(sessionId, 'timeout', callbacks);
-      }
-    }, DEFAULT_CONFIG.activityCheckInterval);
-  }
-
-  /**
-   * Stop activity check interval
-   */
-  protected stopActivityCheck(): void {
-    if (this.activityCheckInterval) {
-      clearInterval(this.activityCheckInterval);
-      this.activityCheckInterval = null;
+      throw error;
     }
-  }
-
-  /**
-   * Update activity timestamp
-   */
-  protected updateActivity(): void {
-    this.lastActivity = Date.now();
-  }
-
-  /**
-   * Handle process close
-   */
-  protected handleProcessClose(
-    sessionId: string,
-    code: number,
-    output: string,
-    error: string,
-    sessionIdFromCli: string | undefined,
-    callbacks: AgentExecutionCallbacks | undefined,
-    resolve: (result: CliExecutionResult) => void,
-  ): void {
-    this.stopActivityCheck();
-    this.currentProcess = null;
-    this.status = 'idle';
-
-    // Flush remaining output
-    const remainingEvents = this.parser.flush();
-    for (const event of remainingEvents) {
-      this.handleCliEvent(sessionId, event, callbacks);
-    }
-
-    // Process remaining buffer
-    if (this.parser.getBuffer().trim()) {
-      try {
-        const message = JSON.parse(this.parser.getBuffer().trim());
-        const events = this.parser.parseMessage(message);
-        for (const event of events) {
-          this.handleCliEvent(sessionId, event, callbacks);
-        }
-      } catch {
-        // Ignore incomplete JSON
-      }
-    }
-
-    const result: CliExecutionResult = {
-      success: code === 0,
-      sessionId: sessionIdFromCli,
-      output,
-      error: code !== 0 ? error || `Process exited with code ${code}` : undefined,
-    };
-
-    this.broadcastAgentStatus(sessionId, 'idle');
-
-    if (code === 0) {
-      callbacks?.onComplete?.(sessionId, result);
-    } else {
-      callbacks?.onError?.(sessionId, result.error || 'Execution failed');
-    }
-
-    this.parser.reset();
-    resolve(result);
-  }
-
-  /**
-   * Handle process error
-   */
-  protected handleProcessError(
-    sessionId: string,
-    err: Error,
-    callbacks: AgentExecutionCallbacks | undefined,
-    reject: (error: Error) => void,
-  ): void {
-    this.stopActivityCheck();
-    this.currentProcess = null;
-    this.status = 'idle';
-    this.logger.error(`CLI error: ${err.message}`);
-
-    callbacks?.onError?.(sessionId, err.message);
-    this.broadcastAgentStatus(sessionId, 'idle');
-    reject(err);
-  }
-
-  /**
-   * Graceful shutdown: SIGTERM first, then SIGKILL after grace period
-   */
-  protected gracefulShutdown(
-    sessionId: string,
-    reason: string,
-    callbacks?: AgentExecutionCallbacks,
-  ): void {
-    if (this.isShuttingDown) return;
-    this.isShuttingDown = true;
-
-    this.logger.log(`Initiating graceful shutdown: ${reason}`);
-    this.stopActivityCheck();
-
-    if (!this.currentProcess || !this.currentProcess.pid) {
-      return;
-    }
-
-    // First try SIGTERM for graceful termination
-    this.currentProcess.kill('SIGTERM');
-
-    // Force kill after grace period
-    const forceKillTimer = setTimeout(() => {
-      if (this.currentProcess?.pid) {
-        this.logger.warn('Force killing process after SIGTERM timeout');
-        this.currentProcess.kill('SIGKILL');
-      }
-    }, DEFAULT_CONFIG.gracefulShutdownMs);
-
-    // Ensure timer doesn't prevent process exit
-    forceKillTimer.unref();
-
-    // Broadcast status
-    this.broadcastAgentStatus(sessionId, 'idle');
-    callbacks?.onError?.(sessionId, `Execution ${reason}`);
   }
 
   /**
@@ -570,6 +320,10 @@ export abstract class ExecutableAgentBase {
 
       case 'error':
         this.broadcastError(sessionId, event.error || 'Unknown error');
+        break;
+
+      case 'thinking':
+        // Handle thinking events if needed
         break;
     }
   }
@@ -634,24 +388,11 @@ export abstract class ExecutableAgentBase {
    * Cancel current execution
    */
   cancel(): void {
-    if (this.currentProcess && this.status === 'executing') {
+    if (this.status === 'executing') {
       this.logger.log('Cancelling execution');
-      this.isShuttingDown = true;
-      this.stopActivityCheck();
-
-      // SIGTERM first
-      this.currentProcess.kill('SIGTERM');
-
-      // Force kill after grace period
-      setTimeout(() => {
-        if (this.currentProcess?.pid) {
-          this.currentProcess.kill('SIGKILL');
-        }
-      }, DEFAULT_CONFIG.gracefulShutdownMs);
-
-      this.currentProcess = null;
+      this.ensureCliExecutor();
+      this.cliExecutor!.cancel();
       this.status = 'idle';
-      this.parser.reset();
     }
   }
 
@@ -659,7 +400,8 @@ export abstract class ExecutableAgentBase {
    * Check if agent is available
    */
   isAvailable(): boolean {
-    return this.status === 'idle';
+    this.ensureCliExecutor();
+    return this.status === 'idle' && !this.cliExecutor!.isExecuting();
   }
 
   /**
@@ -676,29 +418,6 @@ export abstract class ExecutableAgentBase {
         senderName: this.config.name,
         type: 'status',
         content: action || `状态: ${status}`,
-        createdAt: new Date(),
-      });
-    }
-  }
-
-  /**
-   * Broadcast message
-   */
-  protected broadcastMessage(sessionId: string, content: string, type: string = 'text'): void {
-    if (this.wsService) {
-      // For streaming text, use a consistent message ID so frontend can append
-      const messageId = type === 'text' || type === 'thinking'
-        ? `stream-${this.config.id}`  // Fixed ID for streaming
-        : `msg-${Date.now()}`;        // Unique ID for other types
-
-      this.wsService.broadcastMessage(sessionId, {
-        id: messageId,
-        sessionId,
-        sender: 'agent',
-        senderId: this.config.id,
-        senderName: this.config.name,
-        type: type as any,
-        content,
         createdAt: new Date(),
       });
     }

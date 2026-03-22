@@ -14,6 +14,7 @@ import { ChatService } from './chat.service';
 import { Agent } from '../database/entities/agent.entity';
 import { ConfigModule } from '../config/config.module';
 import { SessionModule } from '../session/session.module';
+import { AgentRegistry } from './agent-registry.service';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { SessionModule } from '../session/session.module';
     SessionModule,
   ],
   providers: [
+    AgentRegistry, // New agent registry
     AgentsService,
     TaskPlanner,
     TangsengAgent,
@@ -35,6 +37,7 @@ import { SessionModule } from '../session/session.module';
   ],
   controllers: [AgentsController],
   exports: [
+    AgentRegistry, // Export the registry
     AgentsService,
     TaskPlanner,
     TangsengAgent,

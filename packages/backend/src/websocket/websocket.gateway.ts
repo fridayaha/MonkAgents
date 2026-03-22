@@ -48,7 +48,11 @@ export class WebSocketGateway
       this.sessionService,
     );
     // Set WebSocket service on all agents for streaming
-    this.agentsService.setWebSocketService(this.webSocketService);
+    this.agentsService.setWebSocketService(this.webSocketService).then(() => {
+      this.logger.log('WebSocket service set on all agents successfully');
+    }).catch(error => {
+      this.logger.error('Failed to set WebSocket service on agents:', error);
+    });
     // Set dependencies for TangsengAgent
     this.tangsengAgent.setDependencies(
       this.taskPlanner,

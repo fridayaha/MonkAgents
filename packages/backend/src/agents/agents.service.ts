@@ -11,6 +11,8 @@ import { ShasengAgent } from './shaseng.agent';
 import { RulaiAgent } from './rulai.agent';
 import { ExecutableAgentBase } from './executable-agent-base';
 import { WebSocketService } from '../websocket/websocket.service';
+import { AgentRegistry } from './agent-registry.service';
+import { BaseAgentService } from './base-agent.service';
 
 /**
  * 智能体选择结果
@@ -26,10 +28,10 @@ export interface AgentSelectionResult {
 export class AgentsService implements OnModuleInit {
   private readonly logger = new Logger(AgentsService.name);
   private agentStates: Map<string, AgentState> = new Map();
-  private executableAgents: Map<string, ExecutableAgentBase> = new Map();
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly agentRegistry: AgentRegistry,
     private readonly tangsengAgent: TangsengAgent,
     private readonly wukongAgent: WukongAgent,
     private readonly bajieAgent: BajieAgent,
@@ -37,25 +39,65 @@ export class AgentsService implements OnModuleInit {
     private readonly rulaiAgent: RulaiAgent,
     @InjectRepository(Agent)
     private readonly agentRepository: Repository<Agent>,
-  ) {
-    // 注册所有可执行智能体（包括唐僧）
-    this.executableAgents.set('tangseng', this.tangsengAgent);
-    this.executableAgents.set('wukong', this.wukongAgent);
-    this.executableAgents.set('bajie', this.bajieAgent);
-    this.executableAgents.set('shaseng', this.shasengAgent);
-    this.executableAgents.set('rulai', this.rulaiAgent);
-  }
+  ) {}
 
   /**
    * Set WebSocket service on all executable agents
    * Called from WebSocketGateway afterInit
    */
-  setWebSocketService(wsService: WebSocketService): void {
+  async setWebSocketService(wsService: WebSocketService): Promise<void> {
+    // Wait for all agents to be properly initialized before registering them
+    await Promise.all([
+      this.waitForInitialization(this.tangsengAgent),
+      this.waitForInitialization(this.wukongAgent),
+      this.waitForInitialization(this.bajieAgent),
+      this.waitForInitialization(this.shasengAgent),
+      this.waitForInitialization(this.rulaiAgent),
+    ]);
+
+    // Register all agents with the registry
+    this.agentRegistry.registerAgent(this.tangsengAgent);
+    this.agentRegistry.registerAgent(this.wukongAgent);
+    this.agentRegistry.registerAgent(this.bajieAgent);
+    this.agentRegistry.registerAgent(this.shasengAgent);
+    this.agentRegistry.registerAgent(this.rulaiAgent);
+
+    // Set WebSocket service on all agents
     this.wukongAgent.setWebSocketService(wsService);
     this.bajieAgent.setWebSocketService(wsService);
     this.shasengAgent.setWebSocketService(wsService);
     this.rulaiAgent.setWebSocketService(wsService);
-    this.logger.log('WebSocket service set on all agents');
+
+    // Note: Tangseng doesn't directly execute CLI commands, so we might not need WebSocket service
+    // depending on implementation, but for consistency we'll set it
+    this.tangsengAgent.setWebSocketService(wsService);
+
+    this.logger.log('WebSocket service set on all agents and agents registered with registry');
+  }
+
+  /**
+   * Wait for an agent to be properly initialized (has valid ID)
+   */
+  private async waitForInitialization(agent: BaseAgentService): Promise<void> {
+    let attempts = 0;
+    const maxAttempts = 10; // 1 second total wait time
+    const waitInterval = 100; // 100ms between attempts
+
+    while (attempts < maxAttempts) {
+      try {
+        const id = agent.getId();
+        if (id && id !== '') {
+          return; // Successfully initialized
+        }
+      } catch (e) {
+        // getId() might throw if config is not initialized yet
+      }
+
+      attempts++;
+      await new Promise(resolve => setTimeout(resolve, waitInterval));
+    }
+
+    this.logger.warn(`Agent ${agent.constructor.name} failed to initialize within timeout`);
   }
 
   async onModuleInit() {
@@ -173,7 +215,7 @@ export class AgentsService implements OnModuleInit {
    * 获取可执行智能体实例
    */
   getExecutableAgent(agentId: string): ExecutableAgentBase | undefined {
-    return this.executableAgents.get(agentId);
+    return this.agentRegistry.getExecutableAgent(agentId) as ExecutableAgentBase;
   }
 
   /**
@@ -181,66 +223,25 @@ export class AgentsService implements OnModuleInit {
    */
   selectBestAgent(task: string): AgentSelectionResult {
     const taskLower = task.toLowerCase();
-    const candidates: Array<{ agentId: string; weight: number; reason: string }> = [];
 
-    // 遍历所有可执行智能体，计算优先级权重
-    for (const [agentId, agent] of this.executableAgents) {
-      if (agent.canHandle(task)) {
-        // 使用类型断言来调用 getPriorityWeight 方法
-        const weight = this.getAgentPriorityWeight(agentId, taskLower);
-        const reason = this.getAgentReason(agentId, taskLower);
-        candidates.push({ agentId, weight, reason });
-      }
-    }
-
-    // 如果没有匹配的智能体，默认使用孙悟空
-    if (candidates.length === 0) {
+    // Use the registry to find best agent
+    const bestAgent = this.agentRegistry.findBestAgent(task);
+    if (bestAgent) {
       return {
-        agentId: 'wukong',
-        agentName: '孙悟空',
-        weight: 0.5,
-        reason: '默认分配给孙悟空处理常规任务',
+        agentId: bestAgent.getId(),
+        agentName: bestAgent.getName(),
+        weight: bestAgent.getPriorityWeight(task),
+        reason: this.getAgentReason(bestAgent.getId(), taskLower),
       };
     }
 
-    // 按权重排序，选择最合适的
-    candidates.sort((a, b) => b.weight - a.weight);
-    const best = candidates[0];
-
+    // If no agent can handle the task, default to Wukong
     return {
-      agentId: best.agentId,
-      agentName: this.getAgentName(best.agentId),
-      weight: best.weight,
-      reason: best.reason,
+      agentId: 'wukong',
+      agentName: '孙悟空',
+      weight: 0.5,
+      reason: '默认分配给孙悟空处理常规任务',
     };
-  }
-
-  /**
-   * 获取智能体名称
-   */
-  private getAgentName(agentId: string): string {
-    const names: Record<string, string> = {
-      tangseng: '唐僧',
-      wukong: '孙悟空',
-      bajie: '猪八戒',
-      shaseng: '沙和尚',
-      rulai: '如来佛祖',
-    };
-    return names[agentId] || agentId;
-  }
-
-  /**
-   * 获取智能体优先级权重
-   */
-  private getAgentPriorityWeight(agentId: string, task: string): number {
-    const weights: Record<string, number> = {
-      tangseng: this.tangsengAgent.getPriorityWeight(task),
-      wukong: this.wukongAgent.getPriorityWeight(task),
-      bajie: this.bajieAgent.getPriorityWeight(task),
-      shaseng: this.shasengAgent.getPriorityWeight(task),
-      rulai: this.rulaiAgent.getPriorityWeight(task),
-    };
-    return weights[agentId] || 0.5;
   }
 
   /**
@@ -299,7 +300,7 @@ export class AgentsService implements OnModuleInit {
    * 检查智能体是否可用
    */
   isAgentAvailable(agentId: string): boolean {
-    const agent = this.executableAgents.get(agentId);
+    const agent = this.agentRegistry.getExecutableAgent(agentId);
     return agent ? agent.isAvailable() : false;
   }
 
@@ -309,9 +310,9 @@ export class AgentsService implements OnModuleInit {
   getAgentsStatusSummary(): Record<string, { status: AgentStatus; available: boolean }> {
     const summary: Record<string, { status: AgentStatus; available: boolean }> = {};
 
-    for (const [agentId, agent] of this.executableAgents) {
-      const state = this.agentStates.get(agentId);
-      summary[agentId] = {
+    for (const agent of this.agentRegistry.getExecutableAgents()) {
+      const state = this.agentStates.get(agent.getId());
+      summary[agent.getId()] = {
         status: state?.status || 'idle',
         available: agent.isAvailable(),
       };

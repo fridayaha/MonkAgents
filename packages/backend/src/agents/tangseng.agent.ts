@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { ExecutableAgentBase, AgentExecutionContext } from './executable-agent-base';
+import { AgentExecutionContext } from './executable-agent-base';
 import { AgentConfig, CliExecutionResult, AgentRole } from '@monkagents/shared';
 import { ConfigService } from '../config/config.service';
 import { TaskPlanner, TaskPlanResult, DecompositionResult } from './task-planner';
@@ -7,6 +7,7 @@ import { TasksService } from '../tasks/tasks.service';
 import { WebSocketService } from '../websocket/websocket.service';
 import { SessionService } from '../session/session.service';
 import { Task } from '../database/entities/task.entity';
+import { BaseAgentService } from './base-agent.service';
 
 /**
  * 唐僧智能体 - 团队领导者
@@ -14,7 +15,7 @@ import { Task } from '../database/entities/task.entity';
  * 所有行为由配置文件驱动，但保留协调逻辑
  */
 @Injectable()
-export class TangsengAgent extends ExecutableAgentBase implements OnModuleInit {
+export class TangsengAgent extends BaseAgentService implements OnModuleInit {
   private taskPlanner: TaskPlanner | null = null;
   private tasksService: TasksService | null = null;
   private sessionService: SessionService | null = null;
@@ -25,11 +26,11 @@ export class TangsengAgent extends ExecutableAgentBase implements OnModuleInit {
     super({} as AgentConfig);
   }
 
-  onModuleInit() {
+  async onModuleInit() {
+    await super.onModuleInit(); // Call parent implementation
     const config = this.configService.getAgentConfig('tangseng');
     if (config) {
-      this.config = config;
-      (this.logger as any).context = `${config.name}Agent`;
+      this.initialize(config);
     }
   }
 
@@ -594,17 +595,17 @@ export class TangsengAgent extends ExecutableAgentBase implements OnModuleInit {
     this.logger.log(`唐僧开始处理: ${context.prompt.substring(0, 50)}...`);
 
     return super.execute(context, {
-      onInit: (sessionId) => this.logger.debug(`初始化会话: ${sessionId}`),
-      onText: (_, text) => callbacks?.onText?.(text),
-      onToolUse: (_, name, input) => {
+      onInit: (sessionId: string) => this.logger.debug(`初始化会话: ${sessionId}`),
+      onText: (_: string, text: string) => callbacks?.onText?.(text),
+      onToolUse: (_: string, name: string, input: Record<string, unknown>) => {
         this.logger.debug(`使用工具: ${name}`);
         callbacks?.onToolUse?.(name, input);
       },
-      onComplete: (_, result) => {
+      onComplete: (_: string, result: CliExecutionResult) => {
         this.logger.log(`处理完成: ${result.success ? '成功' : '失败'}`);
         callbacks?.onComplete?.(result);
       },
-      onError: (_, error) => {
+      onError: (_: string, error: string) => {
         this.logger.error(`处理失败: ${error}`);
         callbacks?.onError?.(error);
       },
