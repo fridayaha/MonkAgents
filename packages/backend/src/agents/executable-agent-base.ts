@@ -7,6 +7,7 @@ import {
 } from '@monkagents/shared';
 import { AgentExecutionContext, AgentExecutionCallbacks, ExecutableAgent } from './interfaces/agent.interface';
 import { CliExecutor, DEFAULT_CLI_EXECUTION_CONFIG, CliExecutionConfig } from './helpers/cli-executor';
+import { v4 as uuidv4 } from 'uuid';
 
 // 导出类型以便其他模块可以使用
 export { AgentExecutionContext, AgentExecutionCallbacks, ExecutableAgent };
@@ -230,7 +231,6 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     const { sessionId, workingDirectory, prompt, sessionWorkingDirectory } = context;
 
     this.logger.log(`Executing task: ${prompt.substring(0, 50)}...`);
-    this.logger.debug(`Working directory: ${sessionWorkingDirectory || workingDirectory}`);
 
     this.status = 'executing';
 
@@ -279,6 +279,11 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     }
   }
 
+  // Track streaming content to save final message
+  private streamingContent: Map<string, string> = new Map();
+  // Track which messages are being streamed (to ignore duplicate assistant messages)
+  private activeStreamMessages: Set<string> = new Set();
+
   /**
    * Handle CLI output event
    */
@@ -294,19 +299,40 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
       case 'text':
         callbacks?.onText?.(sessionId, event.content || '');
-        // For streaming, use message ID from CLI or fall back to agent-based ID
         if (event.isPartial) {
-          // Partial message - stream with consistent ID
+          // Partial message from stream_event - this is incremental content
+          const streamKey = event.messageId || this.config.id;
+          const existing = this.streamingContent.get(streamKey) || '';
+          this.streamingContent.set(streamKey, existing + (event.content || ''));
+          // Mark this message as actively streaming
+          this.activeStreamMessages.add(streamKey);
+          // Broadcast incremental content
           this.broadcastStreamingText(sessionId, event.content || '', event.messageId, false);
         } else {
-          // Complete message - finalize streaming
-          this.broadcastStreamingText(sessionId, event.content || '', event.messageId, true);
+          // Non-partial text - this could be a complete assistant message
+          const streamKey = event.messageId || this.config.id;
+
+          // Check if we're already streaming this message (from stream_event)
+          // If so, ignore the assistant message to avoid duplicates
+          if (this.activeStreamMessages.has(streamKey)) {
+            // Already streaming this message via stream_event, skip the duplicate
+            this.logger.debug(`Skipping duplicate assistant message for ${streamKey}`);
+          } else {
+            // Not streaming - this is a standalone non-streaming message
+            // Broadcast and accumulate content
+            this.broadcastStreamingText(sessionId, event.content || '', event.messageId, false);
+            this.streamingContent.set(streamKey, event.content || '');
+          }
         }
         break;
 
       case 'complete':
-        // Message complete - finalize streaming
-        this.broadcastStreamingComplete(sessionId, event.messageId);
+        // Message complete - save accumulated content to database
+        // Note: saveStreamingMessage already sends completion signal to frontend
+        this.saveStreamingMessage(sessionId, event.messageId);
+        // Clear the active streaming marker
+        const streamKey = event.messageId || this.config.id;
+        this.activeStreamMessages.delete(streamKey);
         break;
 
       case 'tool_use':
@@ -329,7 +355,62 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   }
 
   /**
+   * Save streaming message to database when complete
+   * Uses stream- prefix ID to match frontend streaming message
+   * Sends only completion signal to frontend (frontend already has content accumulated)
+   */
+  private saveStreamingMessage(sessionId: string, messageId?: string): void {
+    const streamKey = messageId || this.config.id;
+    const content = this.streamingContent.get(streamKey);
+    const streamId = `stream-${messageId || this.config.id}`;
+
+    if (this.wsService) {
+      // Save content to database if we have it
+      if (content) {
+        this.saveMessageToDatabase(sessionId, streamId, content);
+      }
+
+      // Always send completion signal to frontend
+      // Frontend uses this to mark the message as complete
+      this.wsService.emitToSession(sessionId, 'message', {
+        id: streamId,
+        sessionId,
+        sender: 'agent',
+        senderId: this.config.id,
+        senderName: this.config.name,
+        type: 'text',
+        content: '',
+        createdAt: new Date(),
+        metadata: { isComplete: true, isStreaming: false },
+      });
+
+      // Clear accumulated content
+      this.streamingContent.delete(streamKey);
+    }
+  }
+
+  /**
+   * Save message to database only (not broadcasted to frontend)
+   */
+  private saveMessageToDatabase(sessionId: string, messageId: string, content: string): void {
+    if (this.wsService) {
+      // Use broadcastMessage with a flag to skip Redis save
+      // Or directly call the session service to save
+      this.wsService.saveMessageToDatabase(sessionId, {
+        id: messageId,
+        sessionId,
+        sender: 'agent',
+        senderId: this.config.id,
+        senderName: this.config.name,
+        type: 'text',
+        content,
+      });
+    }
+  }
+
+  /**
    * Broadcast streaming text with proper message ID tracking
+   * Streaming chunks are NOT saved to database - only the final complete message
    */
   protected broadcastStreamingText(
     sessionId: string,
@@ -343,43 +424,20 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         ? `stream-${messageId}`
         : `stream-${this.config.id}`;
 
-      this.logger.debug(`Streaming text: streamId=${streamId}, content length=${content.length}, isComplete=${isComplete}`);
+      // Note: Removed verbose debug logging for streaming chunks
 
-      this.wsService.broadcastMessage(sessionId, {
+      // For streaming, we use emitToSession directly to avoid saving to database
+      // The final complete message will be saved separately
+      this.wsService.emitToSession(sessionId, 'message', {
         id: streamId,
         sessionId,
         sender: 'agent',
         senderId: this.config.id,
         senderName: this.config.name,
-        type: 'thinking',
+        type: isComplete ? 'text' : 'thinking',
         content,
         createdAt: new Date(),
-        metadata: { isComplete, isStreaming: true },
-      } as any);
-    }
-  }
-
-  /**
-   * Broadcast streaming complete - finalize the message
-   */
-  protected broadcastStreamingComplete(sessionId: string, messageId?: string): void {
-    if (this.wsService) {
-      const streamId = messageId
-        ? `stream-${messageId}`
-        : `stream-${this.config.id}`;
-
-      this.logger.debug(`Streaming complete: streamId=${streamId}`);
-
-      this.wsService.broadcastMessage(sessionId, {
-        id: streamId,
-        sessionId,
-        sender: 'agent',
-        senderId: this.config.id,
-        senderName: this.config.name,
-        type: 'text',
-        content: '',
-        createdAt: new Date(),
-        metadata: { isComplete: true, isStreaming: false },
+        metadata: { isComplete, isStreaming: !isComplete },
       } as any);
     }
   }
@@ -423,41 +481,51 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     }
   }
 
+  // Track current tool message ID for updating status
+  private currentToolId: string | null = null;
+
   /**
-   * Broadcast tool use
+   * Broadcast tool use - mark as in progress
+   * Tool use messages are persisted to database
    */
   protected broadcastToolUse(sessionId: string, toolName: string, input: Record<string, unknown>): void {
+    // Generate unique tool ID using uuid to avoid duplicates
+    this.currentToolId = `tool-${uuidv4()}`;
+
     if (this.wsService) {
       this.wsService.broadcastMessage(sessionId, {
-        id: `tool-${Date.now()}`,
+        id: this.currentToolId,
         sessionId,
         sender: 'agent',
         senderId: this.config.id,
         senderName: this.config.name,
         type: 'tool_use',
         content: `使用工具: ${toolName}`,
-        metadata: { toolName, input },
+        metadata: { toolName, input, isComplete: false },
         createdAt: new Date(),
       });
     }
   }
 
   /**
-   * Broadcast tool result
+   * Broadcast tool result - mark tool as complete
+   * Updates the existing tool_use message
    */
   protected broadcastToolResult(sessionId: string, result: unknown): void {
-    if (this.wsService) {
+    if (this.wsService && this.currentToolId) {
+      // Update the tool_use message to mark it as complete
       this.wsService.broadcastMessage(sessionId, {
-        id: `result-${Date.now()}`,
+        id: this.currentToolId,
         sessionId,
         sender: 'agent',
         senderId: this.config.id,
         senderName: this.config.name,
-        type: 'tool_result',
-        content: '工具执行完成',
-        metadata: { result },
+        type: 'tool_use',
+        content: `工具执行完成`,
+        metadata: { isComplete: true, result },
         createdAt: new Date(),
       });
+      this.currentToolId = null;
     }
   }
 
