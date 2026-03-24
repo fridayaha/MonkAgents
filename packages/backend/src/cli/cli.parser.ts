@@ -35,9 +35,6 @@ export class CliOutputParser {
       try {
         const message = JSON.parse(trimmed) as CliMessage;
         const parsedEvents = this.parseMessage(message);
-        if (parsedEvents.length > 0) {
-          this.logger.debug(`Parsed ${parsedEvents.length} events from message type: ${message.type}`);
-        }
         events.push(...parsedEvents);
       } catch (error) {
         // If JSON parse fails, might be incomplete or non-JSON output
@@ -69,14 +66,15 @@ export class CliOutputParser {
       case 'assistant':
         events.push(...this.parseAssistantMessage(message));
         break;
+      case 'user':
+        // User messages may contain tool_result blocks
+        events.push(...this.parseUserMessage(message));
+        break;
       case 'result':
         events.push(...this.parseResultMessage(message));
         break;
       case 'error':
         events.push(this.parseErrorMessage(message));
-        break;
-      case 'user':
-        // Usually just echo, skip
         break;
     }
 
@@ -98,6 +96,32 @@ export class CliOutputParser {
   }
 
   /**
+   * Parse user message - may contain tool_result blocks
+   */
+  private parseUserMessage(message: CliMessage): CliOutputEvent[] {
+    const events: CliOutputEvent[] = [];
+
+    if (!message.message?.content) return events;
+
+    for (const block of message.message.content) {
+      if (block.type === 'tool_result') {
+        events.push({
+          type: 'tool_result',
+          toolResult: typeof block.content === 'string'
+            ? block.content
+            : block.content,
+          sessionId: this.sessionId || undefined,
+          metadata: {
+            isError: block.is_error,
+          },
+        });
+      }
+    }
+
+    return events;
+  }
+
+  /**
    * Parse stream_event message (with --include-partial-messages)
    * This is the true streaming format
    */
@@ -115,14 +139,24 @@ export class CliOutputParser {
       case 'message_start':
         if (event.message?.id) {
           this.currentMessageId = event.message.id;
-          this.logger.debug(`Message started: ${this.currentMessageId}`);
         }
         break;
 
       case 'content_block_start':
         if (event.content_block) {
+          // Handle tool_use block start
+          if (event.content_block.type === 'tool_use') {
+            events.push({
+              type: 'tool_use',
+              toolName: event.content_block.name,
+              toolInput: {},
+              isPartial: true,
+              messageId: this.currentMessageId || undefined,
+              sessionId: this.sessionId || undefined,
+            });
+          }
           // Handle thinking block start
-          if (event.content_block.type === 'thinking') {
+          else if (event.content_block.type === 'thinking') {
             events.push({
               type: 'thinking',
               content: '',
@@ -140,7 +174,6 @@ export class CliOutputParser {
 
           // Text delta - actual content streaming
           if (delta.type === 'text_delta' && delta.text) {
-            this.logger.debug(`Text delta: "${delta.text.substring(0, 30)}..." (messageId: ${this.currentMessageId})`);
             events.push({
               type: 'text',
               content: delta.text,
@@ -159,6 +192,16 @@ export class CliOutputParser {
               sessionId: this.sessionId || undefined,
             });
           }
+          // Input JSON delta - tool input streaming
+          else if (delta.type === 'input_json_delta' && delta.partial_json) {
+            events.push({
+              type: 'tool_use',
+              toolInput: { _partial: delta.partial_json },
+              isPartial: true,
+              messageId: this.currentMessageId || undefined,
+              sessionId: this.sessionId || undefined,
+            });
+          }
         }
         break;
 
@@ -167,8 +210,7 @@ export class CliOutputParser {
         break;
 
       case 'message_stop':
-        // Message completed
-        this.logger.debug(`Message completed: ${this.currentMessageId}`);
+        // Message completed - send complete signal
         events.push({
           type: 'complete',
           content: '',

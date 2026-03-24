@@ -105,9 +105,7 @@ export class CliSession {
         }
       }
 
-      this.logger.debug(`Starting CLI: ${actualCommand} ${args.join(' ')}`);
-
-      // Prepare environment
+      // Prepare environment - remove CLAUDECODE vars to allow nested execution
       const env: Record<string, string> = {};
       Object.keys(process.env).forEach(key => {
         if (!key.startsWith('CLAUDECODE') && !key.startsWith('CLAUDE_CODE')) {
@@ -204,7 +202,6 @@ export class CliSession {
     this.updateActivity();
     const text = data.toString();
     this.stderrBuffer += text;
-    this.logger.debug(`CLI stderr: ${text.substring(0, 100)}...`);
 
     // Some useful info might come through stderr
     this.options.onError?.(text);
@@ -226,7 +223,6 @@ export class CliSession {
 
     switch (event.type) {
       case 'init':
-        this.logger.debug(`Session initialized: ${event.sessionId}`);
         this.options.onInit?.(event.sessionId || this.id);
         break;
 
@@ -290,8 +286,6 @@ export class CliSession {
    * Handle process close
    */
   private handleClose(code: number): void {
-    this.logger.debug(`Process closed with code: ${code}`);
-
     // Stop activity check
     this.stopActivityCheck();
 

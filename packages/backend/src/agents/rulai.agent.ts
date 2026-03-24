@@ -39,10 +39,8 @@ export class RulaiAgent extends BaseAgentService implements OnModuleInit {
     this.logger.log(`如来佛祖开始咨询任务: ${context.prompt.substring(0, 50)}...`);
 
     return super.execute(context, {
-      onInit: (sessionId: string) => this.logger.debug(`初始化咨询会话: ${sessionId}`),
       onText: (_: string, text: string) => callbacks?.onText?.(text),
       onToolUse: (_: string, name: string, input: Record<string, unknown>) => {
-        this.logger.debug(`咨询工具: ${name}`);
         callbacks?.onToolUse?.(name, input);
       },
       onComplete: (_: string, result: CliExecutionResult) => {

@@ -102,7 +102,6 @@ export class CliExecutor {
     }
 
     const args = this.buildCliArgs();
-    this.logger.debug(`Starting CLI: ${actualCommand} ${args.join(' ')} [prompt via stdin]`);
 
     // Prepare environment - remove CLAUDECODE vars to allow nested execution
     const env: Record<string, string> = {};
@@ -151,10 +150,6 @@ export class CliExecutor {
       this.updateActivity();
       const text = data.toString();
       error += text;
-      // Filter out noise logs
-      if (!text.includes('[TAIL]') && !text.includes('[WATCH]')) {
-        this.logger.debug(`CLI stderr: ${text.substring(0, 100)}...`);
-      }
     });
 
     // Handle process close

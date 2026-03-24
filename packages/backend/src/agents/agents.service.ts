@@ -166,8 +166,6 @@ export class AgentsService implements OnModuleInit {
         { agentId },
         { status, lastActivity: new Date() },
       );
-
-      this.logger.debug(`Agent ${agentId} status updated to ${status}`);
     }
   }
 

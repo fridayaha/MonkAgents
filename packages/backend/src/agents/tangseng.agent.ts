@@ -75,12 +75,9 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
         }
       }
       sessionWorkingDir = sessionWorkingDir || process.cwd();
-      this.logger.debug(`会话工作目录: ${sessionWorkingDir}`);
 
       // Use intelligent planning via CLI
       const planResult = await this.createPlan(userPrompt, sessionWorkingDir);
-
-      this.logger.debug(`规划结果: type=${planResult.type}, steps=${planResult.steps.length}, needsHelp=${planResult.needsHelp}`);
 
       // Handle different types
       switch (planResult.type) {
@@ -203,31 +200,7 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
       };
 
       await rulaiAgent.execute(context, {
-        onText: (_: string, text: string) => {
-          this.wsService!.emitToSession(sessionId, 'message', {
-            id: `msg-${Date.now()}`,
-            sessionId,
-            sender: 'agent',
-            senderId: 'rulai',
-            senderName: '如来佛祖',
-            type: 'text',
-            content: text,
-            createdAt: new Date(),
-          });
-        },
-        onToolUse: (_: string, name: string, input: Record<string, unknown>) => {
-          this.wsService!.emitToSession(sessionId, 'message', {
-            id: `tool-${Date.now()}`,
-            sessionId,
-            sender: 'agent',
-            senderId: 'rulai',
-            senderName: '如来佛祖',
-            type: 'tool_use',
-            content: `使用神通: ${name}`,
-            metadata: { toolName: name, input },
-            createdAt: new Date(),
-          });
-        },
+        // Note: All callbacks removed - agent handles broadcasting internally
         onComplete: () => {
           this.wsService!.broadcastAgentActivity(
             sessionId,
@@ -236,18 +209,6 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
             'idle',
             '点化完成',
           );
-        },
-        onError: (_: string, error: string) => {
-          this.wsService!.emitToSession(sessionId, 'message', {
-            id: `error-${Date.now()}`,
-            sessionId,
-            sender: 'system',
-            senderId: 'system',
-            senderName: '系统',
-            type: 'error',
-            content: `如来佛祖参悟出错: ${error}`,
-            createdAt: new Date(),
-          });
         },
       });
     } catch (error) {
@@ -323,7 +284,7 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
     }
 
     // Broadcast plan to user
-    this.wsService!.emitToSession(sessionId, 'message', {
+    this.wsService!.broadcastMessage(sessionId, {
       id: `plan-${Date.now()}`,
       sessionId,
       sender: 'agent',
@@ -422,7 +383,6 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
 
       // Skip tangseng - coordinator doesn't execute CLI
       if (agentId === 'tangseng') {
-        this.logger.debug(`跳过唐僧自己的子任务: ${step.description}`);
         continue;
       }
 
@@ -430,7 +390,7 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
 
       if (!agent) {
         this.logger.warn(`Agent ${agentId} not found, skipping`);
-        this.wsService!.emitToSession(sessionId, 'message', {
+        this.wsService!.broadcastMessage(sessionId, {
           id: `error-${Date.now()}`,
           sessionId,
           sender: 'system',
@@ -453,7 +413,6 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
       );
 
       this.logger.log(`🚀 启动智能体: ${agentName} | 任务: ${step.description.substring(0, 50)}...`);
-      this.logger.debug(`工作目录: ${sessionWorkingDir}`);
 
       try {
         // Create context with proper working directory
@@ -467,21 +426,10 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
         };
 
         await agent.execute(context, {
-          // Note: onText callback removed - streaming is handled by agent's broadcastStreamingText
-          // which properly appends chunks to the same message
-          onToolUse: (_sessionId: string, name: string, input: Record<string, unknown>) => {
-            this.wsService!.emitToSession(sessionId, 'message', {
-              id: `tool-${Date.now()}`,
-              sessionId,
-              sender: 'agent',
-              senderId: agentId,
-              senderName: agentName,
-              type: 'tool_use',
-              content: `使用工具: ${name}`,
-              metadata: { toolName: name, input },
-              createdAt: new Date(),
-            });
-          },
+          // Note: All callbacks removed - agent handles broadcasting internally via:
+          // - broadcastStreamingText for text messages
+          // - broadcastToolUse for tool_use messages
+          // - broadcastError for error messages
           onComplete: () => {
             this.logger.log(`✅ 智能体 ${agentName} 完成`);
             this.wsService!.broadcastAgentActivity(
@@ -492,26 +440,11 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
               '任务完成',
             );
           },
-          onError: (_sessionId: string, error: string) => {
-            this.logger.error(`❌ 智能体 ${agentName} 执行出错: ${error}`);
-            this.wsService!.emitToSession(sessionId, 'message', {
-              id: `error-${Date.now()}`,
-              sessionId,
-              sender: 'system',
-              senderId: 'system',
-              senderName: '系统',
-              type: 'error',
-              content: `${agentName} 执行出错: ${error}`,
-              createdAt: new Date(),
-            });
-          },
         });
-
-        this.logger.debug(`Agent ${agentId} completed`);
 
       } catch (error) {
         this.logger.error(`Agent ${agentId} execution failed: ${error}`);
-        this.wsService!.emitToSession(sessionId, 'message', {
+        this.wsService!.broadcastMessage(sessionId, {
           id: `error-${Date.now()}`,
           sessionId,
           sender: 'system',
@@ -595,10 +528,8 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
     this.logger.log(`唐僧开始处理: ${context.prompt.substring(0, 50)}...`);
 
     return super.execute(context, {
-      onInit: (sessionId: string) => this.logger.debug(`初始化会话: ${sessionId}`),
       onText: (_: string, text: string) => callbacks?.onText?.(text),
       onToolUse: (_: string, name: string, input: Record<string, unknown>) => {
-        this.logger.debug(`使用工具: ${name}`);
         callbacks?.onToolUse?.(name, input);
       },
       onComplete: (_: string, result: CliExecutionResult) => {

@@ -78,7 +78,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    */
   async addMessageToHistory(sessionId: string, message: Message): Promise<void> {
     if (!this.isAvailable() || !this.client) {
-      this.logger.debug('Redis not available, skipping message history');
       return;
     }
 
@@ -91,8 +90,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
       // Set expiration to 7 days
       await this.client.expire(key, 7 * 24 * 60 * 60);
-
-      this.logger.debug(`Message added to history for session ${sessionId}`);
     } catch (error) {
       this.logger.error(`Failed to add message to history: ${error}`);
     }
@@ -103,7 +100,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    */
   async getSessionHistory(sessionId: string, limit: number = 100): Promise<Message[]> {
     if (!this.isAvailable() || !this.client) {
-      this.logger.debug('Redis not available, returning empty history');
       return [];
     }
 

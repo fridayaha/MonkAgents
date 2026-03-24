@@ -121,15 +121,11 @@ export class TaskPlanner {
    * 智能规划任务 - 通过唐僧智能体CLI调用
    */
   async planWithTangseng(userPrompt: string, workingDirectory?: string): Promise<TaskPlanResult> {
-    this.logger.debug(`智能规划任务: ${userPrompt.substring(0, 100)}...`);
-
     const prompt = PLANNING_PROMPT.replace('{task}', userPrompt);
 
     try {
       const result = await this.callClaudeCLI(prompt, workingDirectory);
       const planResult = this.parsePlanResult(result);
-
-      this.logger.debug(`规划结果: type=${planResult.type}, steps=${planResult.steps.length}`);
       return planResult;
     } catch (error) {
       this.logger.error(`智能规划失败: ${error}`);
@@ -164,10 +160,6 @@ export class TaskPlanner {
         const localBin = path.join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe');
         const npmClaude = path.join(process.env.APPDATA || '', 'npm', 'claude.cmd');
 
-        // Check which one exists
-        this.logger.debug(`检查 claude 路径: localBin=${localBin}, exists=${fs.existsSync(localBin)}`);
-        this.logger.debug(`检查 claude 路径: npmClaude=${npmClaude}, exists=${fs.existsSync(npmClaude)}`);
-
         if (fs.existsSync(localBin)) {
           claudeCommand = localBin;
         } else if (fs.existsSync(npmClaude)) {
@@ -175,13 +167,7 @@ export class TaskPlanner {
         }
       }
 
-      this.logger.debug(`使用 claude 路径: ${claudeCommand}`);
-      this.logger.debug(`工作目录参数: ${workingDirectory}`);
-      this.logger.debug(`当前进程目录: ${process.cwd()}`);
-
       const env = this.getCleanEnv();
-      this.logger.debug(`清理后环境变量数量: ${Object.keys(env).length}`);
-      this.logger.debug(`被移除的 CLAUDE 变量: ${Object.keys(process.env).filter(k => k.startsWith('CLAUDE')).join(', ') || '无'}`);
 
       // Resolve working directory to absolute path
       let actualWorkingDir = workingDirectory
@@ -193,7 +179,6 @@ export class TaskPlanner {
         this.logger.warn(`工作目录不存在: ${actualWorkingDir}，使用当前目录: ${process.cwd()}`);
         actualWorkingDir = process.cwd();
       }
-      this.logger.debug(`实际工作目录: ${actualWorkingDir}`);
 
       const proc = spawn(claudeCommand, [
         '-p',
@@ -249,8 +234,6 @@ export class TaskPlanner {
    * 解析规划结果
    */
   private parsePlanResult(result: string): TaskPlanResult {
-    this.logger.debug(`原始响应长度: ${result.length}`);
-
     // 尝试多种方式提取JSON
     let jsonStr: string | null = null;
 
@@ -258,7 +241,6 @@ export class TaskPlanner {
     const codeBlockMatch = result.match(/```json\s*([\s\S]*?)```/);
     if (codeBlockMatch) {
       jsonStr = codeBlockMatch[1].trim();
-      this.logger.debug('从代码块提取JSON');
     }
 
     // 方法2: 查找最后一个完整的 JSON 对象
@@ -273,7 +255,6 @@ export class TaskPlanner {
           try {
             JSON.parse(candidate);
             jsonStr = candidate;
-            this.logger.debug('通过括号匹配提取JSON');
             break;
           } catch {
             // 继续查找
@@ -290,7 +271,6 @@ export class TaskPlanner {
       const jsonMatch = result.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         jsonStr = jsonMatch[0];
-        this.logger.debug('通过正则提取JSON');
       }
     }
 

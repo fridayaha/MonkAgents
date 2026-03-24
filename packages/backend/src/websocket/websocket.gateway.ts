@@ -85,7 +85,6 @@ export class WebSocketGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() sessionId: string,
   ): void {
-    this.logger.debug(`Client ${client.id} joining session: ${sessionId}`);
     client.join(`session:${sessionId}`);
     this.webSocketService.joinSession(client.id, sessionId);
 
@@ -102,7 +101,6 @@ export class WebSocketGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() sessionId: string,
   ): void {
-    this.logger.debug(`Client ${client.id} leaving session: ${sessionId}`);
     client.leave(`session:${sessionId}`);
     this.webSocketService.leaveSession(client.id, sessionId);
   }
@@ -112,7 +110,6 @@ export class WebSocketGateway
     @ConnectedSocket() _client: Socket,
     @MessageBody() data: { sessionId: string; content: string },
   ): Promise<void> {
-    this.logger.debug(`Message in session ${data.sessionId}: ${data.content.substring(0, 50)}...`);
     await this.webSocketService.handleUserMessage(_client.id, data.sessionId, data.content);
   }
 
@@ -121,7 +118,6 @@ export class WebSocketGateway
     @ConnectedSocket() _client: Socket,
     @MessageBody() taskId: string,
   ): Promise<void> {
-    this.logger.debug(`Cancel request for task: ${taskId}`);
     await this.webSocketService.cancelTask(taskId);
   }
 

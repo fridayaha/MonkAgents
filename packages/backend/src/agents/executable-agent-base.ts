@@ -234,8 +234,10 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
     this.status = 'executing';
 
-    // Broadcast status
-    this.broadcastAgentStatus(sessionId, 'executing', '正在执行任务...');
+    // Only emit agent status event (not a message)
+    if (this.wsService) {
+      this.wsService.emitAgentStatus(this.config.id, 'executing', 'executing');
+    }
 
     // Ensure CliExecutor is initialized
     this.ensureCliExecutor();
@@ -263,8 +265,10 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         callbacks?.onError?.(sessionId, result.error || 'Execution failed');
       }
 
-      // Broadcast final status
-      this.broadcastAgentStatus(sessionId, 'idle');
+      // Only emit agent status event (not a message)
+      if (this.wsService) {
+        this.wsService.emitAgentStatus(this.config.id, 'idle', 'idle');
+      }
 
       return result;
     } catch (error) {
@@ -273,7 +277,9 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
       const errorMessage = error instanceof Error ? error.message : String(error);
       callbacks?.onError?.(sessionId, errorMessage);
-      this.broadcastAgentStatus(sessionId, 'idle');
+      if (this.wsService) {
+        this.wsService.emitAgentStatus(this.config.id, 'idle', 'error');
+      }
 
       throw error;
     }
@@ -283,6 +289,8 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   private streamingContent: Map<string, string> = new Map();
   // Track which messages are being streamed (to ignore duplicate assistant messages)
   private activeStreamMessages: Set<string> = new Set();
+  // Track which tools have been broadcasted (to avoid duplicates from stream_event and assistant messages)
+  private broadcastedTools: Set<string> = new Set();
 
   /**
    * Handle CLI output event
@@ -333,14 +341,27 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         // Clear the active streaming marker
         const streamKey = event.messageId || this.config.id;
         this.activeStreamMessages.delete(streamKey);
+        // Clear broadcasted tools tracking for this message
+        this.broadcastedTools.clear();
         break;
 
       case 'tool_use':
         callbacks?.onToolUse?.(sessionId, event.toolName || '', event.toolInput || {});
-        this.broadcastToolUse(sessionId, event.toolName || '', event.toolInput || {});
+        // Only broadcast when we have complete tool info (not just partial streaming)
+        if (event.toolName && Object.keys(event.toolInput || {}).length > 0) {
+          // Check if we already broadcasted this tool (avoid duplicates from stream_event + assistant)
+          const toolKey = `${event.toolName}`;
+          if (!this.broadcastedTools.has(toolKey)) {
+            this.broadcastedTools.add(toolKey);
+            this.broadcastToolUse(sessionId, event.toolName, event.toolInput || {});
+          } else {
+            this.logger.debug(`Skipping duplicate tool_use for ${event.toolName}`);
+          }
+        }
         break;
 
       case 'tool_result':
+        // Tool execution complete - mark the tool as complete
         this.broadcastToolResult(sessionId, event.toolResult);
         break;
 
@@ -463,26 +484,17 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   }
 
   /**
-   * Broadcast agent status
+   * Broadcast agent status (only emit agent_status event, no message)
    */
-  protected broadcastAgentStatus(sessionId: string, status: string, action?: string): void {
+  protected broadcastAgentStatus(_sessionId: string, status: string, action?: string): void {
     if (this.wsService) {
       this.wsService.emitAgentStatus(this.config.id, status, action);
-      this.wsService.broadcastMessage(sessionId, {
-        id: `status-${Date.now()}`,
-        sessionId,
-        sender: 'agent',
-        senderId: this.config.id,
-        senderName: this.config.name,
-        type: 'status',
-        content: action || `状态: ${status}`,
-        createdAt: new Date(),
-      });
     }
   }
 
   // Track current tool message ID for updating status
-  private currentToolId: string | null = null;
+  // Use a stack to handle nested/concurrent tool calls
+  private toolStack: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
 
   /**
    * Broadcast tool use - mark as in progress
@@ -490,11 +502,14 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
    */
   protected broadcastToolUse(sessionId: string, toolName: string, input: Record<string, unknown>): void {
     // Generate unique tool ID using uuid to avoid duplicates
-    this.currentToolId = `tool-${uuidv4()}`;
+    const toolId = `tool-${uuidv4()}`;
+
+    // Push to stack for later reference
+    this.toolStack.push({ id: toolId, name: toolName, input });
 
     if (this.wsService) {
       this.wsService.broadcastMessage(sessionId, {
-        id: this.currentToolId,
+        id: toolId,
         sessionId,
         sender: 'agent',
         senderId: this.config.id,
@@ -509,23 +524,41 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
   /**
    * Broadcast tool result - mark tool as complete
-   * Updates the existing tool_use message
+   * Updates the existing tool_use message (uses the most recent tool from stack)
+   * Uses emitToSession to update frontend, and updates database metadata
    */
   protected broadcastToolResult(sessionId: string, result: unknown): void {
-    if (this.wsService && this.currentToolId) {
-      // Update the tool_use message to mark it as complete
-      this.wsService.broadcastMessage(sessionId, {
-        id: this.currentToolId,
+    // Pop the most recent tool from stack
+    const tool = this.toolStack.pop();
+
+    if (this.wsService && tool) {
+      // Update frontend via WebSocket
+      this.wsService.emitToSession(sessionId, 'message', {
+        id: tool.id,
         sessionId,
         sender: 'agent',
         senderId: this.config.id,
         senderName: this.config.name,
         type: 'tool_use',
         content: `工具执行完成`,
-        metadata: { isComplete: true, result },
+        metadata: {
+          toolName: tool.name,
+          input: tool.input,
+          isComplete: true,
+          result
+        },
         createdAt: new Date(),
       });
-      this.currentToolId = null;
+
+      // Update the database record's metadata
+      this.wsService.updateMessageMetadata(tool.id, {
+        toolName: tool.name,
+        input: tool.input,
+        isComplete: true,
+        result
+      }).catch((err: Error) => {
+        this.logger.error(`Failed to update tool message in database: ${err}`);
+      });
     }
   }
 

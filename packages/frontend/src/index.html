@@ -93,18 +93,21 @@
       <div class="full-page-content">
         <div class="page-header">
           <h1>📋 任务列表</h1>
-          <div class="filters">
-            <select id="task-status-filter" class="filter-select">
-              <option value="">全部状态</option>
-              <option value="pending">等待中</option>
-              <option value="thinking">思考中</option>
-              <option value="executing">执行中</option>
-              <option value="completed">已完成</option>
-              <option value="failed">失败</option>
-            </select>
-            <select id="task-session-filter" class="filter-select">
-              <option value="">全部会话</option>
-            </select>
+          <div class="page-header-actions">
+            <div class="filters">
+              <select id="task-status-filter" class="filter-select">
+                <option value="">全部状态</option>
+                <option value="pending">等待中</option>
+                <option value="thinking">思考中</option>
+                <option value="executing">执行中</option>
+                <option value="completed">已完成</option>
+                <option value="failed">失败</option>
+              </select>
+              <select id="task-session-filter" class="filter-select">
+                <option value="">全部会话</option>
+              </select>
+            </div>
+            <button class="btn btn-secondary btn-close-page" data-page="chat">✕ 关闭</button>
           </div>
         </div>
         <div id="task-list" class="task-list">
@@ -118,7 +121,10 @@
       <div class="full-page-content">
         <div class="page-header">
           <h1>⏰ 定时任务</h1>
-          <button id="new-schedule-btn" class="btn btn-primary">+ 新建定时任务</button>
+          <div class="page-header-actions">
+            <button id="new-schedule-btn" class="btn btn-primary">+ 新建定时任务</button>
+            <button class="btn btn-secondary btn-close-page" data-page="chat">✕ 关闭</button>
+          </div>
         </div>
         <div id="scheduled-list" class="scheduled-list">
           <!-- Scheduled tasks will be loaded here -->

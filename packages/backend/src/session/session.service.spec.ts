@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { SessionService } from './session.service';
+import { SessionService, CreateMessageInput } from './session.service';
 import { Session } from '../database/entities/session.entity';
 import { Conversation } from '../database/entities/conversation.entity';
 import { Task } from '../database/entities/task.entity';
@@ -19,9 +19,12 @@ describe('SessionService', () => {
   };
 
   const mockConversationRepo = {
+    create: jest.fn(),
+    save: jest.fn(),
     find: jest.fn(),
     count: jest.fn(),
     delete: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
 
   const mockTaskRepo = {
@@ -231,6 +234,208 @@ describe('SessionService', () => {
       await service.updateTaskCount('test-id');
 
       expect(mockSessionRepo.update).toHaveBeenCalled();
+    });
+  });
+
+  // ==================== New Message Persistence Tests ====================
+
+  describe('addMessage', () => {
+    it('should save a message to the conversation table', async () => {
+      const input: CreateMessageInput = {
+        sender: 'user',
+        senderId: 'user-1',
+        senderName: 'Test User',
+        type: 'text',
+        content: 'Hello, world!',
+      };
+
+      const mockConversation = {
+        id: 'msg-uuid',
+        sessionId: 'session-1',
+        ...input,
+        createdAt: new Date(),
+      };
+
+      mockConversationRepo.save.mockResolvedValue(mockConversation);
+      mockSessionRepo.update.mockResolvedValue(undefined);
+
+      const result = await service.addMessage('session-1', input);
+
+      expect(mockConversationRepo.save).toHaveBeenCalled();
+      expect(result.content).toBe('Hello, world!');
+      expect(result.sender).toBe('user');
+    });
+
+    it('should save message with custom ID if provided', async () => {
+      const input: CreateMessageInput = {
+        id: 'custom-msg-id',
+        sender: 'agent',
+        senderId: 'wukong',
+        senderName: '孙悟空',
+        type: 'text',
+        content: '任务完成',
+      };
+
+      const mockConversation = {
+        ...input,
+        sessionId: 'session-1',
+        createdAt: new Date(),
+      };
+
+      mockConversationRepo.save.mockResolvedValue(mockConversation);
+      mockSessionRepo.update.mockResolvedValue(undefined);
+
+      await service.addMessage('session-1', input);
+
+      // Verify the saved entity includes the custom ID
+      const saveCall = mockConversationRepo.save.mock.calls[0][0];
+      expect(saveCall.id).toBe('custom-msg-id');
+    });
+
+    it('should generate ID if not provided', async () => {
+      const input: CreateMessageInput = {
+        sender: 'agent',
+        senderId: 'wukong',
+        senderName: '孙悟空',
+        type: 'text',
+        content: '任务完成',
+      };
+
+      const mockConversation = {
+        id: 'msg-generated',
+        sessionId: 'session-1',
+        ...input,
+        createdAt: new Date(),
+      };
+
+      mockConversationRepo.save.mockResolvedValue(mockConversation);
+      mockSessionRepo.update.mockResolvedValue(undefined);
+
+      await service.addMessage('session-1', input);
+
+      // Verify the saved entity has a generated ID
+      const saveCall = mockConversationRepo.save.mock.calls[0][0];
+      expect(saveCall.id).toMatch(/^msg-/);  // Should start with 'msg-'
+    });
+
+    it('should save message with metadata', async () => {
+      const input: CreateMessageInput = {
+        sender: 'agent',
+        senderId: 'wukong',
+        senderName: '孙悟空',
+        type: 'tool_use',
+        content: '使用工具: Read',
+        metadata: { toolName: 'Read', input: { path: '/test' } },
+      };
+
+      const mockConversation = {
+        id: 'msg-uuid',
+        sessionId: 'session-1',
+        ...input,
+        createdAt: new Date(),
+      };
+
+      mockConversationRepo.save.mockResolvedValue(mockConversation);
+      mockSessionRepo.update.mockResolvedValue(undefined);
+
+      const result = await service.addMessage('session-1', input);
+
+      expect(result.metadata).toEqual({ toolName: 'Read', input: { path: '/test' } });
+    });
+
+    it('should update session updatedAt timestamp after saving message', async () => {
+      const input: CreateMessageInput = {
+        sender: 'user',
+        senderId: 'user-1',
+        senderName: 'User',
+        type: 'text',
+        content: 'Test',
+      };
+
+      mockConversationRepo.save.mockResolvedValue({ id: 'msg-id' });
+      mockSessionRepo.update.mockResolvedValue(undefined);
+
+      await service.addMessage('session-1', input);
+
+      expect(mockSessionRepo.update).toHaveBeenCalledWith('session-1', {
+        updatedAt: expect.any(Date),
+      });
+    });
+  });
+
+  describe('addMessages', () => {
+    it('should save multiple messages in batch', async () => {
+      const inputs: CreateMessageInput[] = [
+        {
+          sender: 'user',
+          senderId: 'user-1',
+          senderName: 'User',
+          type: 'text',
+          content: 'Message 1',
+        },
+        {
+          sender: 'agent',
+          senderId: 'wukong',
+          senderName: '孙悟空',
+          type: 'text',
+          content: 'Response 1',
+        },
+      ];
+
+      mockConversationRepo.save.mockResolvedValue([{ id: 'msg-1' }, { id: 'msg-2' }]);
+      mockSessionRepo.update.mockResolvedValue(undefined);
+
+      await service.addMessages('session-1', inputs);
+
+      expect(mockConversationRepo.save).toHaveBeenCalled();
+      expect(mockSessionRepo.update).toHaveBeenCalled();
+    });
+
+    it('should do nothing if inputs array is empty', async () => {
+      await service.addMessages('session-1', []);
+
+      expect(mockConversationRepo.save).not.toHaveBeenCalled();
+      expect(mockSessionRepo.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getSessionMessages', () => {
+    it('should return messages for a session ordered by createdAt', async () => {
+      const mockMessages = [
+        { id: 'msg-1', sessionId: 'session-1', content: 'First', createdAt: new Date('2024-01-01') },
+        { id: 'msg-2', sessionId: 'session-1', content: 'Second', createdAt: new Date('2024-01-02') },
+      ];
+
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue(mockMessages),
+      };
+
+      mockConversationRepo.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const result = await service.getSessionMessages('session-1');
+
+      expect(result).toHaveLength(2);
+      expect(result[0].content).toBe('First');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('conversation.sessionId = :sessionId', { sessionId: 'session-1' });
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('conversation.createdAt', 'ASC');
+    });
+
+    it('should limit results when limit parameter is provided', async () => {
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      };
+
+      mockConversationRepo.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      await service.getSessionMessages('session-1', 50);
+
+      expect(mockQueryBuilder.limit).toHaveBeenCalledWith(50);
     });
   });
 });

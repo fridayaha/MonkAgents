@@ -5,7 +5,22 @@ import { v4 as uuidv4 } from 'uuid';
 import { Session } from '../database/entities/session.entity';
 import { Conversation } from '../database/entities/conversation.entity';
 import { Task } from '../database/entities/task.entity';
-import { SessionStatus, CreateSessionInput, SessionSummary, SessionDetail } from '@monkagents/shared';
+import { SessionStatus, CreateSessionInput, SessionSummary, SessionDetail, MessageType, MessageSender } from '@monkagents/shared';
+
+/**
+ * Input type for creating a message
+ */
+export interface CreateMessageInput {
+  id?: string;
+  taskId?: string;
+  subtaskId?: string;
+  sender: MessageSender;
+  senderId: string;
+  senderName: string;
+  type: MessageType;
+  content: string;
+  metadata?: Record<string, unknown>;
+}
 
 @Injectable()
 export class SessionService {
@@ -180,5 +195,107 @@ export class SessionService {
     await this.sessionRepository.update(sessionId, {
       updatedAt: new Date(),
     });
+  }
+
+  /**
+   * Add a single message to the conversation table
+   * This is the primary method for persisting messages to MySQL
+   */
+  async addMessage(sessionId: string, input: CreateMessageInput): Promise<Conversation> {
+    // Create the entity object - always include id
+    const entity: Partial<Conversation> = {
+      id: input.id || `msg-${uuidv4()}`,  // Always generate ID if not provided
+      sessionId,
+      sender: input.sender,
+      senderId: input.senderId,
+      senderName: input.senderName,
+      type: input.type,
+      content: input.content,
+    };
+
+    // Only set optional fields if they have values
+    if (input.taskId) {
+      entity.taskId = input.taskId;
+    }
+    if (input.subtaskId) {
+      entity.subtaskId = input.subtaskId;
+    }
+    if (input.metadata) {
+      entity.metadata = input.metadata;
+    }
+
+    // Use repository.save with the entity object directly
+    const saved = await this.conversationRepository.save(entity as Conversation);
+
+    // Update session's updatedAt timestamp
+    await this.updateMessageCount(sessionId);
+
+    return saved;
+  }
+
+  /**
+   * Add multiple messages to the conversation table in batch
+   */
+  async addMessages(sessionId: string, inputs: CreateMessageInput[]): Promise<void> {
+    if (inputs.length === 0) return;
+
+    const entities: Partial<Conversation>[] = inputs.map(input => {
+      const entity: Partial<Conversation> = {
+        id: input.id || `msg-${uuidv4()}`,  // Always generate ID if not provided
+        sessionId,
+        sender: input.sender,
+        senderId: input.senderId,
+        senderName: input.senderName,
+        type: input.type,
+        content: input.content,
+      };
+
+      if (input.taskId) {
+        entity.taskId = input.taskId;
+      }
+      if (input.subtaskId) {
+        entity.subtaskId = input.subtaskId;
+      }
+      if (input.metadata) {
+        entity.metadata = input.metadata;
+      }
+
+      return entity;
+    });
+
+    await this.conversationRepository.save(entities as Conversation[]);
+
+    // Update session's updatedAt timestamp
+    await this.updateMessageCount(sessionId);
+  }
+
+  /**
+   * Get messages for a session from the database
+   */
+  async getSessionMessages(sessionId: string, limit?: number): Promise<Conversation[]> {
+    const query = this.conversationRepository
+      .createQueryBuilder('conversation')
+      .where('conversation.sessionId = :sessionId', { sessionId })
+      .orderBy('conversation.createdAt', 'ASC');
+
+    if (limit) {
+      query.limit(limit);
+    }
+
+    return query.getMany();
+  }
+
+  /**
+   * Update a message's metadata by ID
+   * Used for updating tool_use message status from 'in progress' to 'complete'
+   */
+  async updateMessageMetadata(messageId: string, metadata: Record<string, unknown>): Promise<void> {
+    await this.conversationRepository
+      .createQueryBuilder()
+      .update(Conversation)
+      .set({ metadata: () => ':metadata' })
+      .setParameter('metadata', JSON.stringify(metadata))
+      .where('id = :id', { id: messageId })
+      .execute();
   }
 }

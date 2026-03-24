@@ -1,9 +1,9 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
   Index,
+  PrimaryColumn,
 } from 'typeorm';
 import { MessageSender, MessageType } from '@monkagents/shared';
 
@@ -11,31 +11,33 @@ import { MessageSender, MessageType } from '@monkagents/shared';
 @Index('idx_conversations_session_id', ['sessionId'])
 @Index('idx_conversations_task_id', ['taskId'])
 export class Conversation {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'varchar', length: 64 })
   id: string;
 
-  @Column()
+  @Column({ type: 'varchar', length: 36 })
   sessionId: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
   taskId: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
   subtaskId: string;
 
   @Column({
     type: 'varchar',
+    length: 20,
   })
   sender: MessageSender;
 
-  @Column()
+  @Column({ type: 'varchar', length: 64 })
   senderId: string;
 
-  @Column()
+  @Column({ type: 'varchar', length: 100 })
   senderName: string;
 
   @Column({
     type: 'varchar',
+    length: 20,
     default: 'text',
   })
   type: MessageType;

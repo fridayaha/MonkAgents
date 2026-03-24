@@ -1,12 +1,30 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Socket, Server } from 'socket.io';
-import { Message, StreamChunk, CliOutputEvent } from '@monkagents/shared';
+import { Message, StreamChunk, CliOutputEvent, MessageType } from '@monkagents/shared';
 import { TangsengAgent } from '../agents/tangseng.agent';
 import { TasksService } from '../tasks/tasks.service';
 import { AgentMentionService, ParsedMessage } from '../agents/agent-mention.service';
 import { AgentsService } from '../agents/agents.service';
-import { SessionService } from '../session/session.service';
+import { SessionService, CreateMessageInput } from '../session/session.service';
 import { RedisService } from '../redis/redis.service';
+
+/**
+ * Message types that should be persisted to the database
+ */
+const PERSISTABLE_MESSAGE_TYPES: Set<MessageType> = new Set([
+  'text',
+  'tool_use',
+  'error',
+]);
+
+/**
+ * Message types that should NOT be persisted (transient)
+ */
+const TRANSIENT_MESSAGE_TYPES: Set<MessageType> = new Set([
+  'status',
+  'thinking',
+  'chat_complete',
+]);
 
 /**
  * Service for WebSocket communication and task coordination
@@ -53,20 +71,17 @@ export class WebSocketService implements OnModuleInit {
   addClient(client: Socket): void {
     this.clients.set(client.id, client);
     this.clientSessions.set(client.id, new Set());
-    this.logger.debug(`Client connected: ${client.id}`);
   }
 
   removeClient(client: Socket): void {
     this.clients.delete(client.id);
     this.clientSessions.delete(client.id);
-    this.logger.debug(`Client disconnected: ${client.id}`);
   }
 
   joinSession(clientId: string, sessionId: string): void {
     const sessions = this.clientSessions.get(clientId);
     if (sessions) {
       sessions.add(sessionId);
-      this.logger.debug(`Client ${clientId} joined session: ${sessionId}`);
     }
 
     // Load and send session history from Redis
@@ -77,27 +92,54 @@ export class WebSocketService implements OnModuleInit {
     const sessions = this.clientSessions.get(clientId);
     if (sessions) {
       sessions.delete(sessionId);
-      this.logger.debug(`Client ${clientId} left session: ${sessionId}`);
     }
   }
 
   /**
-   * Load session history from Redis and send to client
+   * Load session history from database and Redis, then send to client
+   * Database is the source of truth, Redis is used for quick access
    */
   private async loadAndSendSessionHistory(clientId: string, sessionId: string): Promise<void> {
     try {
-      const history = await this.redisService.getSessionHistory(sessionId, 100);
+      let messages: Message[] = [];
 
-      if (history.length > 0) {
+      // Try to load from database first (source of truth)
+      if (this.sessionService) {
+        const dbMessages = await this.sessionService.getSessionMessages(sessionId);
+        if (dbMessages.length > 0) {
+          messages = dbMessages.map(m => ({
+            id: m.id,
+            sessionId: m.sessionId,
+            taskId: m.taskId ?? undefined,
+            subtaskId: m.subtaskId ?? undefined,
+            sender: m.sender,
+            senderId: m.senderId,
+            senderName: m.senderName,
+            type: m.type,
+            content: m.content,
+            metadata: m.metadata ?? undefined,
+            createdAt: m.createdAt,
+          }));
+        }
+      }
+
+      // If no database messages, fall back to Redis
+      if (messages.length === 0) {
+        const redisHistory = await this.redisService.getSessionHistory(sessionId, 100);
+        if (redisHistory.length > 0) {
+          messages = redisHistory;
+        }
+      }
+
+      // Send history to client
+      if (messages.length > 0) {
         const client = this.clients.get(clientId);
         if (client) {
-          // Send history to the specific client
           client.emit('session_history', {
             sessionId,
-            messages: history,
-            count: history.length,
+            messages,
+            count: messages.length,
           });
-          this.logger.debug(`Sent ${history.length} history messages to client ${clientId}`);
         }
       }
     } catch (error) {
@@ -123,12 +165,9 @@ export class WebSocketService implements OnModuleInit {
   /**
    * Handle user message - process through Tangseng agent for intelligent planning
    */
-  async handleUserMessage(clientId: string, sessionId: string, content: string): Promise<void> {
-    this.logger.debug(`User message from ${clientId} in ${sessionId}: ${content}`);
-
+  async handleUserMessage(_clientId: string, sessionId: string, content: string): Promise<void> {
     // Get session working directory
     const workingDirectory = await this.getSessionWorkingDirectory(sessionId);
-    this.logger.debug(`Session working directory: ${workingDirectory}`);
 
     // Save user message to history first
     const userMessage: Message = {
@@ -217,13 +256,7 @@ export class WebSocketService implements OnModuleInit {
     }
 
     // Broadcast that the agent is starting
-    this.broadcastAgentActivity(
-      sessionId,
-      primaryAgentId,
-      this.mentionService.getAgentName(primaryAgentId),
-      'thinking',
-      '正在思考...',
-    );
+    this.emitAgentStatus(primaryAgentId, 'thinking', 'thinking');
 
     try {
       // Execute task through the agent with proper working directory
@@ -236,58 +269,18 @@ export class WebSocketService implements OnModuleInit {
         prompt: taskPrompt,
       };
 
-      const result = await agent.execute(context, {
-        // Note: onText callback removed - streaming is handled by agent's broadcastStreamingText
-        // which properly appends chunks to the same message
-        onToolUse: (_sessionId: string, name: string, input: Record<string, unknown>) => {
-          this.emitToSession(sessionId, 'message', {
-            id: `tool-${Date.now()}`,
-            sessionId,
-            sender: 'agent',
-            senderId: primaryAgentId,
-            senderName: this.mentionService.getAgentName(primaryAgentId),
-            type: 'tool_use',
-            content: `使用工具: ${name}`,
-            metadata: { toolName: name, input },
-            createdAt: new Date(),
-          } as Message);
-        },
+      await agent.execute(context, {
+        // Note: All callbacks removed - agent handles broadcasting internally via:
+        // - broadcastStreamingText for text messages
+        // - broadcastToolUse for tool_use messages
+        // - broadcastError for error messages
         onComplete: (_sessionId: string, execResult) => {
-          const statusMessage = execResult.success ? '任务完成' : '任务完成（有警告）';
-          this.broadcastAgentActivity(
-            sessionId,
-            primaryAgentId,
-            this.mentionService.getAgentName(primaryAgentId),
-            'idle',
-            statusMessage,
-          );
-        },
-        onError: (_sessionId: string, error: string) => {
-          this.emitToSession(sessionId, 'message', {
-            id: `error-${Date.now()}`,
-            sessionId,
-            sender: 'system',
-            senderId: 'system',
-            senderName: '系统',
-            type: 'error',
-            content: `执行出错: ${error}`,
-            createdAt: new Date(),
-          } as Message);
+          // Only update agent status, don't broadcast completion message
+          this.emitAgentStatus(primaryAgentId, 'idle', execResult.success ? 'idle' : 'error');
         },
       });
 
-      // Broadcast final result
-      this.emitToSession(sessionId, 'message', {
-        id: `result-${Date.now()}`,
-        sessionId,
-        sender: 'agent',
-        senderId: primaryAgentId,
-        senderName: this.mentionService.getAgentName(primaryAgentId),
-        type: 'status',
-        content: result.success ? '任务已完成' : '任务执行失败',
-        metadata: { result },
-        createdAt: new Date(),
-      } as Message);
+      // Don't broadcast final result message - user can see the actual response
 
     } catch (error) {
       this.logger.error(`Agent execution error: ${error}`);
@@ -299,8 +292,6 @@ export class WebSocketService implements OnModuleInit {
    * Cancel a task
    */
   async cancelTask(taskId: string): Promise<void> {
-    this.logger.debug(`Cancel request for task: ${taskId}`);
-
     if (!this.tasksService) {
       return;
     }
@@ -390,38 +381,102 @@ export class WebSocketService implements OnModuleInit {
 
   /**
    * Broadcast message to session
+   * This is the primary method for sending messages to clients
+   * Messages are:
+   * 1. Broadcasted to WebSocket clients
+   * 2. Saved to MySQL conversation table (if persistable)
+   * 3. Saved to Redis for quick history access (if persistable)
    */
   broadcastMessage(sessionId: string, message: Message): void {
+    // Emit to WebSocket clients
     this.emitToSession(sessionId, 'message', message);
 
-    // Save message to Redis history
-    this.redisService.addMessageToHistory(sessionId, message).catch(err => {
-      this.logger.error(`Failed to save message to Redis: ${err}`);
-    });
+    // Determine if this message should be persisted
+    const shouldPersist = this.shouldPersistMessage(message);
+
+    if (shouldPersist) {
+      // Save to MySQL conversation table
+      this.saveMessageToDatabase(sessionId, message).catch(err => {
+        this.logger.error(`Failed to save message to database: ${err}`);
+      });
+
+      // Save to Redis history for quick loading
+      this.redisService.addMessageToHistory(sessionId, message).catch(err => {
+        this.logger.error(`Failed to save message to Redis: ${err}`);
+      });
+    }
+  }
+
+  /**
+   * Determine if a message should be persisted to storage
+   * Streaming messages (isStreaming=true) are not persisted
+   * Transient message types are not persisted
+   */
+  private shouldPersistMessage(message: Message): boolean {
+    // Don't persist streaming chunks
+    if (message.metadata?.isStreaming === true) {
+      return false;
+    }
+
+    // Don't persist transient message types
+    if (TRANSIENT_MESSAGE_TYPES.has(message.type)) {
+      return false;
+    }
+
+    // Persist text, tool_use, error messages
+    return PERSISTABLE_MESSAGE_TYPES.has(message.type);
+  }
+
+  /**
+   * Save a message to the MySQL conversation table
+   * Can be called directly to persist without broadcasting
+   */
+  async saveMessageToDatabase(sessionId: string, message: Partial<Message> & { id: string; sender: Message['sender']; senderId: string; senderName: string; type: Message['type']; content: string }): Promise<void> {
+    if (!this.sessionService) {
+      this.logger.warn('SessionService not available, cannot save message to database');
+      return;
+    }
+
+    const input: CreateMessageInput = {
+      id: message.id,
+      taskId: message.taskId,
+      subtaskId: message.subtaskId,
+      sender: message.sender,
+      senderId: message.senderId,
+      senderName: message.senderName,
+      type: message.type,
+      content: message.content,
+      metadata: message.metadata,
+    };
+
+    await this.sessionService.addMessage(sessionId, input);
+  }
+
+  /**
+   * Update a message's metadata in the database
+   * Used for updating tool_use message status
+   */
+  async updateMessageMetadata(messageId: string, metadata: Record<string, unknown>): Promise<void> {
+    if (!this.sessionService) {
+      this.logger.warn('SessionService not available, cannot update message metadata');
+      return;
+    }
+
+    await this.sessionService.updateMessageMetadata(messageId, metadata);
   }
 
   /**
    * Broadcast agent thinking/working status
+   * Only emits agent_status event, no message broadcast
    */
   broadcastAgentActivity(
-    sessionId: string,
+    _sessionId: string,
     agentId: string,
-    agentName: string,
+    _agentName: string,
     status: 'thinking' | 'executing' | 'idle',
     activity?: string,
   ): void {
-    this.broadcastMessage(sessionId, {
-      id: `activity-${Date.now()}`,
-      sessionId,
-      sender: 'agent',
-      senderId: agentId,
-      senderName: agentName,
-      type: 'status',
-      content: activity || (status === 'thinking' ? '正在思考...' : '执行中...'),
-      metadata: { status },
-      createdAt: new Date(),
-    });
-
+    // Only emit agent status event, don't broadcast message
     this.emitAgentStatus(agentId, status, activity);
   }
 

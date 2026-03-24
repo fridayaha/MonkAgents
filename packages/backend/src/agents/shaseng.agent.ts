@@ -38,10 +38,8 @@ export class ShasengAgent extends BaseAgentService implements OnModuleInit {
     this.logger.log(`沙和尚开始审查任务: ${context.prompt.substring(0, 50)}...`);
 
     return super.execute(context, {
-      onInit: (sessionId: string) => this.logger.debug(`初始化审查会话: ${sessionId}`),
       onText: (_: string, text: string) => callbacks?.onText?.(text),
       onToolUse: (_: string, name: string, input: Record<string, unknown>) => {
-        this.logger.debug(`审查工具: ${name}`);
         callbacks?.onToolUse?.(name, input);
       },
       onComplete: (_: string, result: CliExecutionResult) => {

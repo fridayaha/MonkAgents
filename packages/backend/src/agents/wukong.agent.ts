@@ -38,10 +38,8 @@ export class WukongAgent extends BaseAgentService implements OnModuleInit {
     this.logger.log(`孙悟空开始执行任务: ${context.prompt.substring(0, 50)}...`);
 
     return super.execute(context, {
-      onInit: (sessionId: string) => this.logger.debug(`初始化会话: ${sessionId}`),
       onText: (_: string, text: string) => callbacks?.onText?.(text),
       onToolUse: (_: string, name: string, input: Record<string, unknown>) => {
-        this.logger.debug(`使用工具: ${name}`);
         callbacks?.onToolUse?.(name, input);
       },
       onComplete: (_: string, result: CliExecutionResult) => {

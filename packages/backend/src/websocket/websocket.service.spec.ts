@@ -43,6 +43,11 @@ describe('WebSocketService', () => {
     isAvailable: jest.fn().mockReturnValue(true),
   };
 
+  const mockSessionService = {
+    addMessage: jest.fn().mockResolvedValue({ id: 'msg-id' }),
+    getSessionMessages: jest.fn().mockResolvedValue([]),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -65,6 +70,8 @@ describe('WebSocketService', () => {
     }).compile();
 
     service = module.get<WebSocketService>(WebSocketService);
+    // Set dependencies including sessionService
+    service.setDependencies({} as any, {} as any, mockSessionService as any);
   });
 
   describe('client management', () => {
@@ -184,6 +191,212 @@ describe('WebSocketService', () => {
     it('should handle cancel without tasks service', async () => {
       await service.cancelTask('task-1');
       // Should not throw
+    });
+  });
+
+  // ==================== Message Persistence Tests ====================
+
+  describe('broadcastMessage', () => {
+    beforeEach(() => {
+      service.setServer(mockServer as unknown as Server);
+    });
+
+    it('should emit message to WebSocket clients', () => {
+      const message = {
+        id: 'msg-1',
+        sessionId: 'session-1',
+        sender: 'user' as const,
+        senderId: 'user-1',
+        senderName: 'User',
+        type: 'text' as const,
+        content: 'Hello',
+        createdAt: new Date(),
+      };
+
+      service.broadcastMessage('session-1', message);
+
+      expect(mockServer.to).toHaveBeenCalledWith('session:session-1');
+      expect(mockServer.emit).toHaveBeenCalledWith('message', message);
+    });
+
+    it('should persist text message to database and Redis', async () => {
+      const message = {
+        id: 'msg-1',
+        sessionId: 'session-1',
+        sender: 'agent' as const,
+        senderId: 'wukong',
+        senderName: '孙悟空',
+        type: 'text' as const,
+        content: '任务完成',
+        createdAt: new Date(),
+      };
+
+      service.broadcastMessage('session-1', message);
+
+      // Wait for async operations
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(mockSessionService.addMessage).toHaveBeenCalledWith('session-1', expect.objectContaining({
+        id: 'msg-1',
+        type: 'text',
+        content: '任务完成',
+      }));
+      expect(mockRedisService.addMessageToHistory).toHaveBeenCalledWith('session-1', message);
+    });
+
+    it('should persist tool_use message to database', async () => {
+      const message = {
+        id: 'tool-1',
+        sessionId: 'session-1',
+        sender: 'agent' as const,
+        senderId: 'wukong',
+        senderName: '孙悟空',
+        type: 'tool_use' as const,
+        content: '使用工具: Read',
+        metadata: { toolName: 'Read', isComplete: true },
+        createdAt: new Date(),
+      };
+
+      service.broadcastMessage('session-1', message);
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(mockSessionService.addMessage).toHaveBeenCalled();
+    });
+
+    it('should persist error message to database', async () => {
+      const message = {
+        id: 'error-1',
+        sessionId: 'session-1',
+        sender: 'system' as const,
+        senderId: 'system',
+        senderName: '系统',
+        type: 'error' as const,
+        content: '执行出错',
+        createdAt: new Date(),
+      };
+
+      service.broadcastMessage('session-1', message);
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(mockSessionService.addMessage).toHaveBeenCalled();
+    });
+
+    it('should NOT persist streaming messages (isStreaming=true)', async () => {
+      const message = {
+        id: 'stream-msg-1',
+        sessionId: 'session-1',
+        sender: 'agent' as const,
+        senderId: 'wukong',
+        senderName: '孙悟空',
+        type: 'thinking' as const,
+        content: 'Partial content',
+        metadata: { isStreaming: true },
+        createdAt: new Date(),
+      };
+
+      service.broadcastMessage('session-1', message);
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(mockSessionService.addMessage).not.toHaveBeenCalled();
+      expect(mockRedisService.addMessageToHistory).not.toHaveBeenCalled();
+    });
+
+    it('should NOT persist status messages', async () => {
+      const message = {
+        id: 'status-1',
+        sessionId: 'session-1',
+        sender: 'agent' as const,
+        senderId: 'wukong',
+        senderName: '孙悟空',
+        type: 'status' as const,
+        content: '正在思考...',
+        createdAt: new Date(),
+      };
+
+      service.broadcastMessage('session-1', message);
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(mockSessionService.addMessage).not.toHaveBeenCalled();
+    });
+
+    it('should NOT persist thinking messages', async () => {
+      const message = {
+        id: 'thinking-1',
+        sessionId: 'session-1',
+        sender: 'agent' as const,
+        senderId: 'wukong',
+        senderName: '孙悟空',
+        type: 'thinking' as const,
+        content: '思考中...',
+        createdAt: new Date(),
+      };
+
+      service.broadcastMessage('session-1', message);
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(mockSessionService.addMessage).not.toHaveBeenCalled();
+    });
+
+    it('should NOT persist chat_complete messages', async () => {
+      const message = {
+        id: 'chat-complete-1',
+        sessionId: 'session-1',
+        sender: 'system' as const,
+        senderId: 'system',
+        senderName: '系统',
+        type: 'chat_complete' as const,
+        content: '',
+        createdAt: new Date(),
+      };
+
+      service.broadcastMessage('session-1', message);
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(mockSessionService.addMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('loadAndSendSessionHistory', () => {
+    it('should load history from database first', async () => {
+      const mockMessages = [
+        { id: 'msg-1', content: 'Message 1', createdAt: new Date() },
+        { id: 'msg-2', content: 'Message 2', createdAt: new Date() },
+      ];
+
+      mockSessionService.getSessionMessages.mockResolvedValue(mockMessages);
+
+      service.addClient(mockSocket as unknown as Socket);
+      service.setServer(mockServer as unknown as Server);
+      service.joinSession('socket-123', 'session-1');
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(mockSessionService.getSessionMessages).toHaveBeenCalledWith('session-1');
+      expect(mockSocket.emit).toHaveBeenCalledWith('session_history', expect.objectContaining({
+        sessionId: 'session-1',
+        count: 2,
+      }));
+    });
+
+    it('should fallback to Redis if database is empty', async () => {
+      mockSessionService.getSessionMessages.mockResolvedValue([]);
+      mockRedisService.getSessionHistory.mockResolvedValue([
+        { id: 'redis-msg-1', content: 'Redis Message' },
+      ]);
+
+      service.addClient(mockSocket as unknown as Socket);
+      service.setServer(mockServer as unknown as Server);
+      service.joinSession('socket-123', 'session-1');
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(mockRedisService.getSessionHistory).toHaveBeenCalled();
     });
   });
 });
