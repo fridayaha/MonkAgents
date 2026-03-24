@@ -372,9 +372,6 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     try {
       const fullPrompt = this.buildPrompt(prompt, context);
 
-      // 调试：打印完整提示词（只打印最后500字符，避免日志过长）
-      this.logger.debug(`完整提示词(末尾500字符):\n...${fullPrompt.slice(-500)}`);
-
       // Define event handler
       const handleEvent = (event: CliOutputEvent) => {
         this.handleCliEvent(sessionId, event, callbacks);
@@ -442,7 +439,6 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     }
 
     this.scanDirectory(workingDirectory);
-    this.logger.debug(`Captured file snapshot: ${this.fileSnapshot.size} files`);
   }
 
   /**
@@ -618,10 +614,10 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   private activeStreamMessages: Set<string> = new Set();
   // Track which tools have been broadcasted (to avoid duplicates from stream_event and assistant messages)
   private broadcastedTools: Set<string> = new Set();
-  // Track if we're inside an execution_summary block (to hide from user)
-  private inSummaryBlock: Map<string, boolean> = new Map();
-  // Summary content accumulator (for parsing later)
-  private summaryContent: Map<string, string> = new Map();
+  // Track the last broadcasted position for each stream (to handle hiding)
+  private lastBroadcastedIndex: Map<string, number> = new Map();
+  // Track if we're inside a hidden block
+  private hiddenBlockState: Map<string, boolean> = new Map();
 
   /**
    * Handle CLI output event
@@ -643,20 +639,19 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
           const streamKey = event.messageId || this.config.id;
           const existing = this.streamingContent.get(streamKey) || '';
           const newContent = event.content || '';
-          this.streamingContent.set(streamKey, existing + newContent);
+          const fullContent = existing + newContent;
+          this.streamingContent.set(streamKey, fullContent);
           // Mark this message as actively streaming
           this.activeStreamMessages.add(streamKey);
 
-          // Check if we're entering or leaving a summary block
-          this.updateSummaryBlockState(streamKey, existing, newContent);
+          // Check if we should broadcast this chunk
+          // We track if we're inside a code block that should be hidden
+          const shouldHide = this.shouldHideContent(streamKey, fullContent);
 
-          // Broadcast incremental content (only if not in summary block)
-          if (!this.inSummaryBlock.get(streamKey)) {
-            // Filter out any summary block content that might be in this chunk
-            const filteredContent = this.filterSummaryContent(streamKey, newContent);
-            if (filteredContent) {
-              this.broadcastStreamingText(sessionId, filteredContent, event.messageId, false);
-            }
+          if (!shouldHide) {
+            // Broadcast the new chunk
+            // Note: we broadcast the raw chunk, filtering happens at save time
+            this.broadcastStreamingText(sessionId, newContent, event.messageId, false);
           }
         } else {
           // Non-partial text - this could be a complete assistant message
@@ -666,20 +661,15 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
           // If so, ignore the assistant message to avoid duplicates
           if (this.activeStreamMessages.has(streamKey)) {
             // Already streaming this message via stream_event, skip the duplicate
-            this.logger.debug(`Skipping duplicate assistant message for ${streamKey}`);
           } else {
             // Not streaming - this is a standalone non-streaming message
-            // Check for summary block
             const content = event.content || '';
-            this.updateSummaryBlockState(streamKey, '', content);
-
-            if (!this.inSummaryBlock.get(streamKey)) {
-              const filteredContent = this.filterSummaryContent(streamKey, content);
-              if (filteredContent) {
-                this.broadcastStreamingText(sessionId, filteredContent, event.messageId, false);
-              }
-            }
             this.streamingContent.set(streamKey, content);
+            // Filter content before broadcasting
+            const filteredContent = this.removeSummaryFromContent(content);
+            if (filteredContent) {
+              this.broadcastStreamingText(sessionId, filteredContent, event.messageId, false);
+            }
           }
         }
         break;
@@ -693,9 +683,9 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         this.activeStreamMessages.delete(streamKey);
         // Clear broadcasted tools tracking for this message
         this.broadcastedTools.clear();
-        // Clear summary block state
-        this.inSummaryBlock.delete(streamKey);
-        this.summaryContent.delete(streamKey);
+        // Clear tracking state
+        this.lastBroadcastedIndex.delete(streamKey);
+        this.hiddenBlockState.delete(streamKey);
         break;
 
       case 'tool_use':
@@ -707,8 +697,6 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
           if (!this.broadcastedTools.has(toolKey)) {
             this.broadcastedTools.add(toolKey);
             this.broadcastToolUse(sessionId, event.toolName, event.toolInput || {});
-          } else {
-            this.logger.debug(`Skipping duplicate tool_use for ${event.toolName}`);
           }
         }
         break;
@@ -731,7 +719,7 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   /**
    * Save streaming message to database when complete
    * Uses stream- prefix ID to match frontend streaming message
-   * Sends only completion signal to frontend (frontend already has content accumulated)
+   * Sends cleaned content to frontend to replace accumulated streaming content
    */
   private saveStreamingMessage(sessionId: string, messageId?: string): void {
     const streamKey = messageId || this.config.id;
@@ -747,8 +735,8 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         this.saveMessageToDatabase(sessionId, streamId, content);
       }
 
-      // Always send completion signal to frontend
-      // Frontend uses this to mark the message as complete
+      // Send the cleaned final content to frontend
+      // Frontend should replace the streaming message with this final content
       this.wsService.emitToSession(sessionId, 'message', {
         id: streamId,
         sessionId,
@@ -756,52 +744,92 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         senderId: this.config.id,
         senderName: this.config.name,
         type: 'text',
-        content: '',
+        content: content,  // Send cleaned content (not empty)
         createdAt: new Date(),
-        metadata: { isComplete: true, isStreaming: false },
+        metadata: { isComplete: true, isStreaming: false, isFinal: true },
       });
 
       // Clear accumulated content
       this.streamingContent.delete(streamKey);
+      this.lastBroadcastedIndex.delete(streamKey);
     }
   }
 
   /**
-   * Update summary block state based on content
-   * Detects ```execution_summary blocks
+   * Determine if we should hide content from the current streaming position
+   * This checks if the content contains hidden blocks (execution_summary, json, etc.)
+   * and whether we're currently inside such a block
    */
-  private updateSummaryBlockState(streamKey: string, previousContent: string, newContent: string): void {
-    const fullContent = previousContent + newContent;
+  private shouldHideContent(_streamKey: string, fullContent: string): boolean {
+    // Patterns for blocks we want to hide
+    const hiddenBlockPatterns = [
+      /```execution_summary\b/g,
+      /```json\b/g,
+      /```\{/g,
+    ];
 
-    // Check for summary block markers
-    const summaryStartIndex = fullContent.lastIndexOf('```execution_summary');
-    const summaryEndIndex = fullContent.lastIndexOf('```');
+    // Find the start of any hidden block
+    let hiddenBlockStart = -1;
+    let hiddenBlockEnd = -1;
 
-    if (summaryStartIndex !== -1) {
-      // Found start marker
-      if (summaryEndIndex !== -1 && summaryEndIndex > summaryStartIndex + 20) {
-        // Found both start and end markers, not in block
-        this.inSummaryBlock.set(streamKey, false);
-      } else {
-        // Only start marker found, we're in a summary block
-        this.inSummaryBlock.set(streamKey, true);
+    for (const pattern of hiddenBlockPatterns) {
+      const match = fullContent.match(pattern);
+      if (match) {
+        const startIndex = fullContent.search(pattern);
+        if (startIndex !== -1) {
+          // Find the closing ```
+          const afterStart = fullContent.substring(startIndex);
+          const closeMatch = afterStart.match(/```[\s\S]*?```/);
+          if (closeMatch) {
+            // Block is complete, check if we should hide based on position
+            hiddenBlockStart = startIndex;
+            hiddenBlockEnd = startIndex + closeMatch[0].length;
+          } else {
+            // Block is incomplete - we're inside it
+            hiddenBlockStart = startIndex;
+            hiddenBlockEnd = -1; // No end yet
+          }
+          break;
+        }
       }
-    } else {
-      this.inSummaryBlock.set(streamKey, false);
     }
-  }
 
-  /**
-   * Filter out summary content from a chunk
-   * Returns content that should be shown to user
-   */
-  private filterSummaryContent(_streamKey: string, content: string): string {
-    // If content contains the start of a summary block, truncate it
-    const startIndex = content.indexOf('```execution_summary');
-    if (startIndex !== -1) {
-      return content.substring(0, startIndex);
+    // If we found a hidden block
+    if (hiddenBlockStart !== -1) {
+      if (hiddenBlockEnd === -1) {
+        // Block is incomplete, we're inside it
+        return true;
+      } else {
+        // Block is complete, check if cursor is inside it
+        // Since we're checking full content, if block exists, we might be past it
+        // For streaming, we need to check if the last part of content is inside a block
+        // Simplified: if content ends with incomplete pattern, hide
+        const lastPart = fullContent.substring(Math.max(0, fullContent.length - 100));
+        for (const pattern of hiddenBlockPatterns) {
+          if (pattern.test(lastPart)) {
+            // Check if it's closed
+            const closeIndex = lastPart.lastIndexOf('```');
+            const openIndex = lastPart.search(pattern);
+            if (closeIndex === -1 || closeIndex < openIndex + 3) {
+              return true;
+            }
+          }
+        }
+      }
     }
-    return content;
+
+    // Check for orphan ``` at end (might be start of hidden block)
+    const trimmedEnd = fullContent.trimEnd();
+    if (trimmedEnd.endsWith('```')) {
+      // Check if this ``` is closing something or starting something
+      const tripleBacktickCount = (fullContent.match(/```/g) || []).length;
+      if (tripleBacktickCount % 2 !== 0) {
+        // Odd number of ```, last one is opening a block
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -809,8 +837,28 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
    * Used before saving to database
    */
   private removeSummaryFromContent(content: string): string {
-    // Remove ```execution_summary ... ``` blocks
-    return content.replace(/```execution_summary\s*[\s\S]*?```/g, '').trim();
+    let cleaned = content;
+
+    // 1. Remove execution_summary blocks (complete)
+    cleaned = cleaned.replace(/```execution_summary[\s\S]*?```/g, '');
+
+    // 2. Remove json blocks (LLM might output JSON for summary)
+    cleaned = cleaned.replace(/```json[\s\S]*?```/g, '');
+
+    // 3. Remove code blocks starting with { (JSON residual)
+    cleaned = cleaned.replace(/```\{[\s\S]*?```/g, '');
+
+    // 4. Remove empty code blocks (``` followed only by whitespace/newlines then ```)
+    cleaned = cleaned.replace(/```\s*\n?\s*```/g, '');
+
+    // 5. Remove orphan backticks (single ``` on its own line or at end)
+    cleaned = cleaned.replace(/^```\s*$/gm, '');
+    cleaned = cleaned.replace(/```\s*$/g, '');
+
+    // 6. Clean up multiple newlines
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+
+    return cleaned;
   }
 
   /**

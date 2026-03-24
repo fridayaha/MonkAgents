@@ -318,7 +318,12 @@ class App {
       return;
     }
 
-    container.innerHTML = this.currentSession.messages.map(msg => this.renderMessage(msg)).join('');
+    // Render messages and filter out empty ones
+    const rendered = this.currentSession.messages
+      .map(msg => this.renderMessage(msg))
+      .filter(html => html.length > 0);
+
+    container.innerHTML = rendered.join('');
 
     // Restore loading indicator if it was showing
     if (this.isLoadingShowing) {
@@ -362,6 +367,11 @@ class App {
     const typeClass = msg.type || 'text';
 
     let contentHtml = this.formatContent(msg.content);
+
+    // Skip messages with no content after filtering (e.g., only execution_summary)
+    if (!contentHtml && msg.type !== 'tool_use') {
+      return '';
+    }
 
     // Special rendering for tool_use
     if (msg.type === 'tool_use') {
@@ -707,16 +717,33 @@ class App {
 
     if (isStreaming) {
       const existingIndex = this.currentSession.messages.findIndex(m => m.id === message.id);
+      const isFinal = message.metadata?.isFinal === true;
 
       if (isComplete) {
-        // Streaming complete - mark the message as finalized
-        if (existingIndex >= 0) {
-          // Message already exists, just mark it as complete
+        // Streaming complete - update or create the final message
+        if (isFinal && message.content) {
+          // This is the final cleaned content from backend
+          // Replace the accumulated content with the cleaned version
+          if (existingIndex >= 0) {
+            this.currentSession.messages[existingIndex].content = message.content;
+            this.currentSession.messages[existingIndex].type = 'text';
+            delete this.currentSession.messages[existingIndex].metadata?.isStreaming;
+            delete this.currentSession.messages[existingIndex].metadata?.isComplete;
+            delete this.currentSession.messages[existingIndex].metadata?.isFinal;
+          } else {
+            // No existing message, create new one with cleaned content
+            this.currentSession.messages.push({
+              ...message,
+              type: 'text',
+            });
+          }
+        } else if (existingIndex >= 0) {
+          // Legacy: just mark as complete without content replacement
           this.currentSession.messages[existingIndex].type = 'text';
           delete this.currentSession.messages[existingIndex].metadata?.isStreaming;
           delete this.currentSession.messages[existingIndex].metadata?.isComplete;
         }
-        // If no existing message, this complete event has no content, ignore it
+        // If no existing message and no content, ignore
       } else if (isStreamingChunk) {
         // This is a streaming chunk - append to existing or create new
         if (existingIndex >= 0) {
@@ -1287,6 +1314,30 @@ class App {
   formatContent(content) {
     if (!content) return '';
 
+    // Remove execution_summary blocks before rendering (internal use only)
+    let cleaned = content;
+
+    // 1. Remove execution_summary blocks (complete)
+    cleaned = cleaned.replace(/```execution_summary[\s\S]*?```/g, '');
+
+    // 2. Remove json blocks (LLM might output JSON for summary)
+    cleaned = cleaned.replace(/```json[\s\S]*?```/g, '');
+
+    // 3. Remove code blocks starting with { (JSON residual)
+    cleaned = cleaned.replace(/```\{[\s\S]*?```/g, '');
+
+    // 4. Remove empty code blocks (``` followed only by whitespace/newlines then ```)
+    cleaned = cleaned.replace(/```\s*\n?\s*```/g, '');
+
+    // 5. Remove orphan backticks (single ``` on its own line or at end)
+    cleaned = cleaned.replace(/^```\s*$/gm, '');
+    cleaned = cleaned.replace(/```\s*$/g, '');
+
+    // 6. Clean up multiple newlines
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+
+    if (!cleaned) return '';
+
     // Use marked.js for markdown rendering if available
     if (typeof marked !== 'undefined') {
       try {
@@ -1306,7 +1357,7 @@ class App {
           }
         });
 
-        return marked.parse(content);
+        return marked.parse(cleaned);
       } catch (e) {
         console.error('Markdown parse error:', e);
         // Fall through to basic formatting
@@ -1314,7 +1365,7 @@ class App {
     }
 
     // Fallback: basic markdown-like formatting
-    let formatted = this.escapeHtml(content);
+    let formatted = this.escapeHtml(cleaned);
 
     // Code blocks
     formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');

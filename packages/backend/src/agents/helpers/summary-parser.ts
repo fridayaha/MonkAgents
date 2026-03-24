@@ -17,35 +17,35 @@ export class SummaryParser {
   private static readonly logger = new Logger(SummaryParser.name);
 
   /**
- * 从 CLI 输出中解析执行摘要
- */
+   * 从 CLI 输出中解析执行摘要
+   */
   static parse(output: string): ExecutionSummary | null {
     if (!output) {
       return null;
     }
 
-    // 调试：打印输出的最后800字符，查看是否有execution_summary
-    this.logger.debug(`CLI输出末尾(最后800字符):\n...${output.slice(-800)}`);
+    // 从 JSON 格式的 CLI 输出中提取文本内容
+    const extractedText = this.extractTextFromCliOutput(output);
 
     // 方法1: 查找 ```execution_summary 代码块
-    const codeBlockMatch = output.match(/```execution_summary\s*([\s\S]*?)```/);
+    const codeBlockMatch = extractedText.match(/```execution_summary\s*([\s\S]*?)```/);
     if (codeBlockMatch) {
       try {
         const json = JSON.parse(codeBlockMatch[1].trim());
-        this.logger.debug(`成功解析 execution_summary 代码块`);
+        this.logger.debug(`成功解析 execution_summary`);
         return this.validateAndNormalize(json);
       } catch (e) {
-        this.logger.debug('Failed to parse execution_summary block');
+        // JSON 解析失败，继续尝试其他方法
       }
     }
 
     // 方法2: 查找 ```json 代码块中包含 status 字段的对象
-    const jsonBlockMatch = output.match(/```json\s*([\s\S]*?)```/);
+    const jsonBlockMatch = extractedText.match(/```json\s*([\s\S]*?)```/);
     if (jsonBlockMatch) {
       try {
         const json = JSON.parse(jsonBlockMatch[1].trim());
         if (json.status || json.filesChanged || json.outputs || json.suggestions) {
-          this.logger.debug(`成功解析 json 代码块`);
+          this.logger.debug(`成功解析 execution_summary (json块)`);
           return this.validateAndNormalize(json);
         }
       } catch (e) {
@@ -54,14 +54,14 @@ export class SummaryParser {
     }
 
     // 方法3: 查找 JSON 对象（包含 status 或 suggestions 字段）
-    const jsonMatch = output.match(/\{[\s\S]*"(?:status|suggestions)"[\s\S]*\}/);
+    const jsonMatch = extractedText.match(/\{[\s\S]*"(?:status|suggestions)"[\s\S]*\}/);
     if (jsonMatch) {
-      const fullJson = this.extractCompleteJson(output, jsonMatch.index!);
+      const fullJson = this.extractCompleteJson(extractedText, jsonMatch.index!);
       if (fullJson) {
         try {
           const json = JSON.parse(fullJson);
           if (json.status || json.suggestions || json.outputs) {
-            this.logger.debug(`成功解析裸 JSON 对象`);
+            this.logger.debug(`成功解析 execution_summary (裸JSON)`);
             return this.validateAndNormalize(json);
           }
         } catch (e) {
@@ -70,9 +70,50 @@ export class SummaryParser {
       }
     }
 
-    // 没有找到摘要，这是正常情况，不输出警告
-    this.logger.debug(`未找到 execution_summary`);
+    // 没有找到摘要，这是正常情况
     return null;
+  }
+
+  /**
+   * 从 CLI 输出中提取文本内容
+   * 处理 JSON 格式的输出，提取 result[0].text 或 assistant.message.content
+   */
+  private static extractTextFromCliOutput(output: string): string {
+    // 尝试解析为 NDJSON 格式
+    const lines = output.split('\n').filter(line => line.trim());
+
+    // 收集所有文本内容
+    let allText = '';
+
+    for (const line of lines) {
+      try {
+        const json = JSON.parse(line);
+
+        // 处理 result 类型消息
+        if (json.type === 'result' && Array.isArray(json.result)) {
+          for (const item of json.result) {
+            if (item.type === 'text' && item.text) {
+              allText += item.text + '\n';
+            }
+          }
+        }
+
+        // 处理 assistant 类型消息
+        if (json.type === 'assistant' && json.message?.content) {
+          for (const block of json.message.content) {
+            if (block.type === 'text' && block.text) {
+              allText += block.text + '\n';
+            }
+          }
+        }
+      } catch {
+        // 不是 JSON，可能是纯文本，直接追加
+        allText += line + '\n';
+      }
+    }
+
+    // 如果没有提取到文本，返回原始输出
+    return allText || output;
   }
 
   /**
