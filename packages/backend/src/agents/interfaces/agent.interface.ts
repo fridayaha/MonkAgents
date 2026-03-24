@@ -1,4 +1,4 @@
-import { AgentConfig, AgentStatus, CliExecutionResult } from '@monkagents/shared';
+import { AgentConfig, AgentStatus, CliExecutionResult, ExecutionSummary, TaskContext, FileChange, HandoffRequest } from '@monkagents/shared';
 
 export interface AgentExecutionContext {
   sessionId: string;
@@ -7,6 +7,27 @@ export interface AgentExecutionContext {
   workingDirectory: string;
   prompt: string;
   sessionWorkingDirectory?: string;
+
+  // ===== 新增字段：多智能体协作上下文 =====
+
+  /** 任务级上下文 */
+  taskContext?: TaskContext;
+
+  /** 前置任务的执行摘要 */
+  previousSummaries?: ExecutionSummary[];
+
+  /** 所有变更文件的汇总 */
+  changedFiles?: FileChange[];
+
+  /** handoff 来源信息 */
+  handoffFrom?: {
+    agentId: string;
+    agentName: string;
+    reason: string;
+  };
+
+  /** 当前 handoff 请求（如果是由 handoff 触发的执行） */
+  handoffRequest?: HandoffRequest;
 }
 
 export interface AgentExecutionCallbacks {

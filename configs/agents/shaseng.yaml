@@ -99,6 +99,22 @@ executionPrompt:
     你只负责检查和提出建议，不直接修改代码。
     发现的问题要详细说明原因和建议的解决方案。
     对于严重问题要明确标注优先级。
+
+    【重要】如果审查发现需要修改代码的问题，请在 execution_summary 的 suggestions 中建议将任务交给孙悟空(wukong)来修复。
+    例如：
+    ```execution_summary
+    {
+      "status": "completed",
+      "issues": [...],
+      "suggestions": [
+        {
+          "targetAgent": "wukong",
+          "task": "根据审查意见修改代码：具体问题描述",
+          "reason": "沙和尚不直接修改代码，需要孙悟空进行代码修改"
+        }
+      ]
+    }
+    ```
   taskTemplate: |
     请执行以下审查任务:
     {task}
@@ -114,6 +130,8 @@ executionPrompt:
     - 发现的问题（按严重程度排序）
     - 改进建议
     - 整体评价
+
+    【重要】如果发现问题需要修改代码，请在最后的 execution_summary 中添加 suggestions 字段，建议将修复任务交给孙悟空。
 
 # 技能
 skills:

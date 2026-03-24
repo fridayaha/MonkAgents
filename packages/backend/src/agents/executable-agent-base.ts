@@ -4,10 +4,17 @@ import {
   AgentStatus,
   CliExecutionResult,
   CliOutputEvent,
+  ExecutionSummary,
+  FileChange,
+  ExecutionSummaryBuilder,
 } from '@monkagents/shared';
 import { AgentExecutionContext, AgentExecutionCallbacks, ExecutableAgent } from './interfaces/agent.interface';
 import { CliExecutor, DEFAULT_CLI_EXECUTION_CONFIG, CliExecutionConfig } from './helpers/cli-executor';
+import { SummaryParser } from './helpers/summary-parser';
 import { v4 as uuidv4 } from 'uuid';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as crypto from 'crypto';
 
 // 导出类型以便其他模块可以使用
 export { AgentExecutionContext, AgentExecutionCallbacks, ExecutableAgent };
@@ -23,6 +30,17 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   protected wsService: any = null; // Using any to avoid circular dependency issues
   private cliExecutor?: CliExecutor;  // Make it optional initially
   private executionConfig: CliExecutionConfig;
+
+  // ===== 文件变更追踪 =====
+  /** 执行前的文件快照: path -> hash */
+  private fileSnapshot: Map<string, string> = new Map();
+  /** 当前工作目录 */
+  private currentWorkingDir: string = '';
+  /** 排除的目录/文件 */
+  private static readonly EXCLUDED_PATTERNS = [
+    'node_modules', '.git', '.idea', '.vscode', 'dist', 'build',
+    '.DS_Store', 'Thumbs.db', '.env', '.env.local', '.env.*.local',
+  ];
 
   constructor(config: AgentConfig, executionConfig?: CliExecutionConfig) {
     this.config = config;
@@ -185,24 +203,67 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       parts.push(`所有文件操作应在此目录下进行。`);
     }
 
-    // 3. Add execution instructions
+    // 3. Add task context (任务级上下文 - 新增)
+    if (context?.taskContext) {
+      parts.push(`\n【任务背景】`);
+      parts.push(`原始需求: ${context.taskContext.originalPrompt}`);
+      parts.push(`当前轮次: ${context.taskContext.currentRound}/${context.taskContext.maxRounds}`);
+      if (context.taskContext.planSummary) {
+        parts.push(`规划摘要: ${context.taskContext.planSummary}`);
+      }
+    }
+
+    // 4. Add previous execution summaries (前置任务摘要 - 新增)
+    if (context?.previousSummaries && context.previousSummaries.length > 0) {
+      parts.push(`\n【前置任务执行摘要】`);
+      context.previousSummaries.forEach((summary, i) => {
+        parts.push(`\n--- 任务 ${i + 1} ---`);
+        if (summary.filesChanged && summary.filesChanged.length > 0) {
+          parts.push(`变更文件:`);
+          summary.filesChanged.forEach(f => {
+            parts.push(`  - ${f.path} (${f.action})${f.summary ? `: ${f.summary}` : ''}`);
+          });
+        }
+        if (summary.outputs && summary.outputs.length > 0) {
+          parts.push(`产出:`);
+          summary.outputs.forEach(o => {
+            parts.push(`  - ${o.description}${o.filePath ? ` (${o.filePath})` : ''}`);
+          });
+        }
+        if (summary.issues && summary.issues.length > 0) {
+          parts.push(`问题:`);
+          summary.issues.forEach(issue => {
+            parts.push(`  - [${issue.type}] ${issue.description}`);
+          });
+        }
+      });
+    }
+
+    // 5. Add handoff information (handoff 信息 - 新增)
+    if (context?.handoffFrom) {
+      parts.push(`\n【交接信息】`);
+      parts.push(`来源智能体: ${context.handoffFrom.agentName} (${context.handoffFrom.agentId})`);
+      parts.push(`交接原因: ${context.handoffFrom.reason}`);
+    }
+
+    // 6. Add execution instructions
     parts.push(`\n【执行指令】`);
     parts.push(`请立即执行以下任务，使用可用的工具完成操作。`);
     parts.push(`执行完成后简要报告结果，不要只是回复消息。`);
 
-    // 4. Add additional instructions if configured
+    // 7. Add additional instructions if configured
     if (this.config.executionPrompt?.additionalInstructions) {
       parts.push(`\n【重要提示】\n${this.config.executionPrompt.additionalInstructions}`);
     }
 
-    // 5. Add task description
+    // 8. Add task description
     if (this.config.executionPrompt?.taskTemplate) {
       parts.push(`\n${this.config.executionPrompt.taskTemplate.replace('{task}', task)}`);
     } else {
       parts.push(`\n【当前任务】\n${task}`);
     }
 
-    // 6. Add checklist if configured
+    // 9. Add checklist if configured
     if (this.config.executionPrompt?.checklist && this.config.executionPrompt.checklist.length > 0) {
       parts.push('\n【注意事项】');
       this.config.executionPrompt.checklist.forEach((item, i) => {
@@ -210,7 +271,7 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       });
     }
 
-    // 7. Add boundaries reminder
+    // 10. Add boundaries reminder
     if (this.config.boundaries && this.config.boundaries.length > 0) {
       parts.push('\n【工作边界】');
       this.config.boundaries.forEach((boundary) => {
@@ -218,7 +279,65 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       });
     }
 
+    // 11. Add execution summary output requirement (执行摘要输出要求 - 新增)
+    parts.push(this.getExecutionSummaryPrompt());
+
     return parts.join('\n');
+  }
+
+  /**
+   * Get execution summary output prompt
+   * 引导智能体输出结构化的执行摘要
+   * 注意：摘要内容不会展示给用户，仅用于内部任务交接
+   */
+  protected getExecutionSummaryPrompt(): string {
+    return `
+
+【执行摘要输出要求】（必填！此部分不会展示给用户）
+任务执行完成后，你必须在最后输出以下格式的 execution_summary 代码块：
+
+\`\`\`execution_summary
+{
+  "status": "completed",
+  "outputs": [
+    {"type": "file", "description": "简要描述产出", "filePath": "文件路径"}
+  ],
+  "suggestions": []
+}
+\`\`\`
+
+字段说明：
+- status: 必填。completed=完成, partial=部分完成, failed=失败
+- outputs: 必填。记录你的主要产出（创建的文件、执行的命令等）
+- suggestions: 选填。如果需要其他智能体继续处理才填写
+  - targetAgent: wukong(编码) | shaseng(检查) | bajie(文档) | tangseng(协调)
+  - task: 建议的任务描述
+  - reason: 为什么要交给这个智能体
+
+示例1 - 任务完成，需要检查：
+\`\`\`execution_summary
+{
+  "status": "completed",
+  "outputs": [
+    {"type": "file", "description": "创建了登录页面", "filePath": "src/pages/login.tsx"}
+  ],
+  "suggestions": [
+    {"targetAgent": "shaseng", "task": "审查登录页面代码质量", "reason": "代码创建完成，需要质量检查"}
+  ]
+}
+\`\`\`
+
+示例2 - 任务完成，无需后续：
+\`\`\`execution_summary
+{
+  "status": "completed",
+  "outputs": [
+    {"type": "file", "description": "修复了bug", "filePath": "src/utils/helper.ts"}
+  ]
+}
+\`\`\`
+
+请确保输出有效的JSON格式！`;
   }
 
   /**
@@ -229,6 +348,7 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     callbacks?: AgentExecutionCallbacks,
   ): Promise<CliExecutionResult> {
     const { sessionId, workingDirectory, prompt, sessionWorkingDirectory } = context;
+    const startTime = Date.now();
 
     this.logger.log(`Executing task: ${prompt.substring(0, 50)}...`);
 
@@ -245,8 +365,15 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     // Start activity-based timeout check
     this.cliExecutor!.startActivityCheck();
 
+    // ===== 执行前：记录文件快照 =====
+    const workDir = sessionWorkingDirectory || workingDirectory;
+    this.captureFileSnapshot(workDir);
+
     try {
       const fullPrompt = this.buildPrompt(prompt, context);
+
+      // 调试：打印完整提示词（只打印最后500字符，避免日志过长）
+      this.logger.debug(`完整提示词(末尾500字符):\n...${fullPrompt.slice(-500)}`);
 
       // Define event handler
       const handleEvent = (event: CliOutputEvent) => {
@@ -254,7 +381,22 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       };
 
       // Execute via CLI executor
-      const result = await this.cliExecutor!.execute(fullPrompt, sessionWorkingDirectory || workingDirectory, handleEvent);
+      const result = await this.cliExecutor!.execute(fullPrompt, workDir, handleEvent);
+
+      // ===== 执行后：检测文件变更并生成摘要 =====
+      const filesChanged = this.detectFileChanges();
+      const reportedSummary = SummaryParser.parse(result.output || '');
+
+      // 合并生成最终摘要
+      const executionSummary = this.buildExecutionSummary(
+        result,
+        filesChanged,
+        reportedSummary,
+        Date.now() - startTime,
+      );
+
+      // 将摘要附加到结果中
+      result.executionSummary = executionSummary;
 
       this.status = 'idle';
       this.cliExecutor!.stopActivityCheck();
@@ -285,12 +427,201 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     }
   }
 
+  // ===== 文件变更追踪方法 =====
+
+  /**
+   * 执行前捕获文件快照
+   */
+  private captureFileSnapshot(workingDirectory: string): void {
+    this.currentWorkingDir = workingDirectory;
+    this.fileSnapshot.clear();
+
+    if (!fs.existsSync(workingDirectory)) {
+      this.logger.warn(`Working directory does not exist: ${workingDirectory}`);
+      return;
+    }
+
+    this.scanDirectory(workingDirectory);
+    this.logger.debug(`Captured file snapshot: ${this.fileSnapshot.size} files`);
+  }
+
+  /**
+   * 递归扫描目录，记录文件哈希
+   */
+  private scanDirectory(dir: string, relativePath: string = ''): void {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        // 跳过排除的模式
+        if (ExecutableAgentBase.EXCLUDED_PATTERNS.some(p => entry.name.includes(p))) {
+          continue;
+        }
+
+        const fullRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+        const fullPath = path.join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          this.scanDirectory(fullPath, fullRelativePath);
+        } else if (entry.isFile()) {
+          try {
+            const hash = this.getFileHash(fullPath);
+            this.fileSnapshot.set(fullRelativePath, hash);
+          } catch (e) {
+            // 忽略无法读取的文件
+          }
+        }
+      }
+    } catch (e) {
+      this.logger.warn(`Error scanning directory ${dir}: ${e}`);
+    }
+  }
+
+  /**
+   * 计算文件 MD5 哈希
+   */
+  private getFileHash(filePath: string): string {
+    const content = fs.readFileSync(filePath);
+    return crypto.createHash('md5').update(content).digest('hex');
+  }
+
+  /**
+   * 执行后检测文件变更
+   */
+  private detectFileChanges(): FileChange[] {
+    const changes: FileChange[] = [];
+    const newSnapshot = new Map<string, string>();
+
+    if (!fs.existsSync(this.currentWorkingDir)) {
+      return changes;
+    }
+
+    // 重新扫描目录
+    const scanNew = (dir: string, relativePath: string = '') => {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+        for (const entry of entries) {
+          if (ExecutableAgentBase.EXCLUDED_PATTERNS.some(p => entry.name.includes(p))) {
+            continue;
+          }
+
+          const fullRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+          const fullPath = path.join(dir, entry.name);
+
+          if (entry.isDirectory()) {
+            scanNew(fullPath, fullRelativePath);
+          } else if (entry.isFile()) {
+            try {
+              const hash = this.getFileHash(fullPath);
+              newSnapshot.set(fullRelativePath, hash);
+
+              const oldHash = this.fileSnapshot.get(fullRelativePath);
+
+              if (!oldHash) {
+                // 新文件
+                changes.push({
+                  path: fullRelativePath,
+                  action: 'created',
+                });
+              } else if (oldHash !== hash) {
+                // 修改的文件
+                changes.push({
+                  path: fullRelativePath,
+                  action: 'modified',
+                });
+              }
+            } catch (e) {
+              // 忽略无法读取的文件
+            }
+          }
+        }
+      } catch (e) {
+        this.logger.warn(`Error scanning directory ${dir}: ${e}`);
+      }
+    };
+
+    scanNew(this.currentWorkingDir);
+
+    // 检测删除的文件
+    for (const [oldPath] of this.fileSnapshot) {
+      if (!newSnapshot.has(oldPath)) {
+        changes.push({
+          path: oldPath,
+          action: 'deleted',
+        });
+      }
+    }
+
+    if (changes.length > 0) {
+      this.logger.log(`Detected ${changes.length} file changes`);
+    }
+
+    return changes;
+  }
+
+  /**
+   * 构建执行摘要
+   */
+  private buildExecutionSummary(
+    result: CliExecutionResult,
+    filesChanged: FileChange[],
+    reportedSummary: ExecutionSummary | null,
+    durationMs: number,
+  ): ExecutionSummary {
+    const builder = new ExecutionSummaryBuilder();
+
+    // 设置状态
+    const status = reportedSummary?.status ?? (result.success ? 'completed' : 'failed');
+    builder.setStatus(status);
+
+    // 添加文件变更（自动收集）
+    for (const file of filesChanged) {
+      builder.addFileChange(file.path, file.action, file.summary);
+    }
+
+    // 添加智能体报告的产出
+    if (reportedSummary?.outputs) {
+      for (const output of reportedSummary.outputs) {
+        builder.addOutput(output.type, output.description, output.value, output.filePath);
+      }
+    }
+
+    // 添加建议（用于 handoff）
+    if (reportedSummary?.suggestions) {
+      for (const suggestion of reportedSummary.suggestions) {
+        builder.addSuggestion(
+          suggestion.targetAgent,
+          suggestion.task,
+          suggestion.reason,
+          suggestion.priority,
+        );
+      }
+    }
+
+    // 添加问题
+    if (reportedSummary?.issues) {
+      for (const issue of reportedSummary.issues) {
+        builder.addIssue(issue.type, issue.description, issue.resolved);
+      }
+    }
+
+    // 设置耗时
+    builder.setDuration(Math.round(durationMs / 1000));
+
+    return builder.build();
+  }
+
   // Track streaming content to save final message
   private streamingContent: Map<string, string> = new Map();
   // Track which messages are being streamed (to ignore duplicate assistant messages)
   private activeStreamMessages: Set<string> = new Set();
   // Track which tools have been broadcasted (to avoid duplicates from stream_event and assistant messages)
   private broadcastedTools: Set<string> = new Set();
+  // Track if we're inside an execution_summary block (to hide from user)
+  private inSummaryBlock: Map<string, boolean> = new Map();
+  // Summary content accumulator (for parsing later)
+  private summaryContent: Map<string, string> = new Map();
 
   /**
    * Handle CLI output event
@@ -311,11 +642,22 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
           // Partial message from stream_event - this is incremental content
           const streamKey = event.messageId || this.config.id;
           const existing = this.streamingContent.get(streamKey) || '';
-          this.streamingContent.set(streamKey, existing + (event.content || ''));
+          const newContent = event.content || '';
+          this.streamingContent.set(streamKey, existing + newContent);
           // Mark this message as actively streaming
           this.activeStreamMessages.add(streamKey);
-          // Broadcast incremental content
-          this.broadcastStreamingText(sessionId, event.content || '', event.messageId, false);
+
+          // Check if we're entering or leaving a summary block
+          this.updateSummaryBlockState(streamKey, existing, newContent);
+
+          // Broadcast incremental content (only if not in summary block)
+          if (!this.inSummaryBlock.get(streamKey)) {
+            // Filter out any summary block content that might be in this chunk
+            const filteredContent = this.filterSummaryContent(streamKey, newContent);
+            if (filteredContent) {
+              this.broadcastStreamingText(sessionId, filteredContent, event.messageId, false);
+            }
+          }
         } else {
           // Non-partial text - this could be a complete assistant message
           const streamKey = event.messageId || this.config.id;
@@ -327,9 +669,17 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
             this.logger.debug(`Skipping duplicate assistant message for ${streamKey}`);
           } else {
             // Not streaming - this is a standalone non-streaming message
-            // Broadcast and accumulate content
-            this.broadcastStreamingText(sessionId, event.content || '', event.messageId, false);
-            this.streamingContent.set(streamKey, event.content || '');
+            // Check for summary block
+            const content = event.content || '';
+            this.updateSummaryBlockState(streamKey, '', content);
+
+            if (!this.inSummaryBlock.get(streamKey)) {
+              const filteredContent = this.filterSummaryContent(streamKey, content);
+              if (filteredContent) {
+                this.broadcastStreamingText(sessionId, filteredContent, event.messageId, false);
+              }
+            }
+            this.streamingContent.set(streamKey, content);
           }
         }
         break;
@@ -343,6 +693,9 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         this.activeStreamMessages.delete(streamKey);
         // Clear broadcasted tools tracking for this message
         this.broadcastedTools.clear();
+        // Clear summary block state
+        this.inSummaryBlock.delete(streamKey);
+        this.summaryContent.delete(streamKey);
         break;
 
       case 'tool_use':
@@ -382,10 +735,13 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
    */
   private saveStreamingMessage(sessionId: string, messageId?: string): void {
     const streamKey = messageId || this.config.id;
-    const content = this.streamingContent.get(streamKey);
+    const rawContent = this.streamingContent.get(streamKey);
     const streamId = `stream-${messageId || this.config.id}`;
 
     if (this.wsService) {
+      // Remove execution summary from content before saving
+      const content = rawContent ? this.removeSummaryFromContent(rawContent) : '';
+
       // Save content to database if we have it
       if (content) {
         this.saveMessageToDatabase(sessionId, streamId, content);
@@ -408,6 +764,53 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       // Clear accumulated content
       this.streamingContent.delete(streamKey);
     }
+  }
+
+  /**
+   * Update summary block state based on content
+   * Detects ```execution_summary blocks
+   */
+  private updateSummaryBlockState(streamKey: string, previousContent: string, newContent: string): void {
+    const fullContent = previousContent + newContent;
+
+    // Check for summary block markers
+    const summaryStartIndex = fullContent.lastIndexOf('```execution_summary');
+    const summaryEndIndex = fullContent.lastIndexOf('```');
+
+    if (summaryStartIndex !== -1) {
+      // Found start marker
+      if (summaryEndIndex !== -1 && summaryEndIndex > summaryStartIndex + 20) {
+        // Found both start and end markers, not in block
+        this.inSummaryBlock.set(streamKey, false);
+      } else {
+        // Only start marker found, we're in a summary block
+        this.inSummaryBlock.set(streamKey, true);
+      }
+    } else {
+      this.inSummaryBlock.set(streamKey, false);
+    }
+  }
+
+  /**
+   * Filter out summary content from a chunk
+   * Returns content that should be shown to user
+   */
+  private filterSummaryContent(_streamKey: string, content: string): string {
+    // If content contains the start of a summary block, truncate it
+    const startIndex = content.indexOf('```execution_summary');
+    if (startIndex !== -1) {
+      return content.substring(0, startIndex);
+    }
+    return content;
+  }
+
+  /**
+   * Remove execution summary block from content
+   * Used before saving to database
+   */
+  private removeSummaryFromContent(content: string): string {
+    // Remove ```execution_summary ... ``` blocks
+    return content.replace(/```execution_summary\s*[\s\S]*?```/g, '').trim();
   }
 
   /**

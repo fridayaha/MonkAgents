@@ -223,4 +223,6 @@ export interface CliExecutionResult {
   };
   durationMs?: number;
   costUsd?: number;
+  /** 执行摘要 - 由智能体生成，包含文件变更、产出、建议等 */
+  executionSummary?: import('./execution-summary').ExecutionSummary;
 }

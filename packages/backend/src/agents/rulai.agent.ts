@@ -17,11 +17,11 @@ export class RulaiAgent extends BaseAgentService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    await super.onModuleInit(); // Call parent implementation
     const config = this.configService.getAgentConfig('rulai');
     if (config) {
       this.initialize(config);
     }
+    await super.onModuleInit(); // Call parent implementation after config is loaded
   }
 
   /**

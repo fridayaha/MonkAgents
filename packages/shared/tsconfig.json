@@ -4,7 +4,9 @@
     "rootDir": "./src",
     "outDir": "./dist",
     "composite": true,
-    "types": ["node", "jest"]
+    "types": ["node", "jest"],
+    "module": "CommonJS",
+    "moduleResolution": "node"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]

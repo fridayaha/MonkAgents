@@ -7,7 +7,7 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { TaskStatus, AgentRole } from '@monkagents/shared';
+import { TaskStatus, AgentRole, ExecutionSummary } from '@monkagents/shared';
 import { Task } from './task.entity';
 
 @Entity('subtasks')
@@ -44,6 +44,20 @@ export class Subtask {
 
   @Column('text', { nullable: true })
   result: string;
+
+  /**
+   * 执行摘要 - 记录任务执行的关键信息
+   * 包括文件变更、产出、建议等
+   */
+  @Column('json', { nullable: true })
+  executionSummary: ExecutionSummary;
+
+  /**
+   * handoff 次数 - 记录该子任务被重新分配的次数
+   * 用于防止死锁
+   */
+  @Column('int', { default: 0 })
+  handoffCount: number;
 
   @ManyToOne(() => Task, (task) => task.subtasks, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'taskId' })

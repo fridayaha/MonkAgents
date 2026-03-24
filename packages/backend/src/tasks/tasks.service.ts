@@ -219,6 +219,14 @@ export class TasksService {
       subtask.result = dto.result;
     }
 
+    if (dto.executionSummary !== undefined) {
+      subtask.executionSummary = dto.executionSummary;
+    }
+
+    if (dto.handoffCount !== undefined) {
+      subtask.handoffCount = dto.handoffCount;
+    }
+
     return this.subtaskRepository.save(subtask);
   }
 

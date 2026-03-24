@@ -1,5 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsArray } from 'class-validator';
-import { TaskPriority, TaskStatus } from '@monkagents/shared';
+import { IsString, IsOptional, IsEnum, IsArray, IsInt, Min } from 'class-validator';
+import { TaskPriority, TaskStatus, ExecutionSummary } from '@monkagents/shared';
 
 /**
  * DTO for creating a new task
@@ -73,4 +73,14 @@ export class UpdateSubtaskDto {
   @IsOptional()
   @IsString()
   result?: string;
+
+  /** 执行摘要 */
+  @IsOptional()
+  executionSummary?: ExecutionSummary;
+
+  /** handoff 次数 */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  handoffCount?: number;
 }
