@@ -19,6 +19,11 @@ class App {
     this.mentionQuery = '';
     this.selectedMentionIndex = 0;
 
+    // Loading state
+    this.isLoadingShowing = false;
+    this.loadingAnimationInterval = null;
+    this.loadingAgentId = null;
+
     this.init();
   }
 
@@ -72,6 +77,8 @@ class App {
     // New session button
     document.getElementById('new-session-btn').addEventListener('click', () => {
       this.showModal('new-session-modal');
+      // Auto-generate random title when opening modal
+      this.generateRandomTitle();
     });
 
     // Modal buttons
@@ -152,6 +159,14 @@ class App {
         if (modalId) {
           this.hideModal(modalId);
         }
+      });
+    });
+
+    // Page close buttons (return to chat page)
+    document.querySelectorAll('.btn-close-page').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const page = btn.dataset.page || 'chat';
+        this.switchPage(page);
       });
     });
 
@@ -305,8 +320,41 @@ class App {
 
     container.innerHTML = this.currentSession.messages.map(msg => this.renderMessage(msg)).join('');
 
+    // Restore loading indicator if it was showing
+    if (this.isLoadingShowing) {
+      this.appendLoadingIndicator(container);
+    }
+
     // Scroll to bottom
     container.scrollTop = container.scrollHeight;
+  }
+
+  appendLoadingIndicator(container) {
+    // Loading效果直接展示，不需要智能体消息框包裹
+    const loadingHtml = `
+      <div class="thinking-indicator" id="loading-indicator">
+        <div class="thinking-spinner"></div>
+        <span class="thinking-text">正在思考</span><span class="loading-dots"></span>
+      </div>
+    `;
+    container.insertAdjacentHTML('beforeend', loadingHtml);
+  }
+
+  updateLoadingAgent(agentId) {
+    // Only update if loading is showing and agent changed
+    if (this.isLoadingShowing && agentId && this.loadingAgentId !== agentId) {
+      this.loadingAgentId = agentId;
+      // Re-render the loading indicator with the correct agent
+      const loading = document.getElementById('loading-indicator');
+      if (loading) {
+        loading.remove();
+        const container = document.getElementById('messages-container');
+        if (container) {
+          this.appendLoadingIndicator(container);
+          this.startLoadingAnimation();
+        }
+      }
+    }
   }
 
   renderMessage(msg) {
@@ -319,37 +367,32 @@ class App {
     if (msg.type === 'tool_use') {
       const toolName = msg.metadata?.toolName || 'unknown';
       const toolInput = msg.metadata?.input || {};
-      contentHtml = `
-        <div class="tool-header">
-          <span class="tool-icon">🔧</span>
-          <span class="tool-name">${toolName}</span>
-        </div>
-        <div class="tool-input"><pre><code>${this.escapeHtml(JSON.stringify(toolInput, null, 2))}</code></pre></div>
-      `;
-    }
+      const isComplete = msg.metadata?.isComplete === true;
+      const isLoading = !isComplete;
 
-    // Special rendering for status - only show running status with animation
-    if (msg.type === 'status') {
-      // Only render status message if it has content
-      if (!msg.content || msg.content.trim() === '') {
-        return '';
-      }
-      // Check if this is a running/executing status
-      const isRunning = msg.content.includes('执行中') ||
-                        msg.content.includes('处理中') ||
-                        msg.content.includes('思考中') ||
-                        msg.content.includes('正在');
-      const statusIcon = isRunning ? '🐎' : '✅';
-      const animationClass = isRunning ? 'status-running' : '';
-
-      return `
-        <div class="message status ${animationClass}">
-          <div class="message-content">
-            <span class="status-icon">${statusIcon}</span>
-            <span>${msg.content}</span>
+      if (isLoading) {
+        // 工具执行中：只显示工具名和loading状态，不显示详情
+        contentHtml = `
+          <div class="tool-header">
+            <span class="tool-loading-icon">⏳</span>
+            <span class="tool-name">${toolName}</span>
+            <span class="tool-loading">执行中...</span>
           </div>
-        </div>
-      `;
+        `;
+      } else {
+        // 工具执行完成：显示详情，默认收起
+        contentHtml = `
+          <div class="tool-header">
+            <span class="tool-icon">✅</span>
+            <span class="tool-name">${toolName}</span>
+            <span class="tool-status-complete">执行完成</span>
+          </div>
+          <details class="tool-details">
+            <summary class="tool-summary">点击查看详情</summary>
+            <div class="tool-input"><pre><code>${this.escapeHtml(JSON.stringify(toolInput, null, 2))}</code></pre></div>
+          </details>
+        `;
+      }
     }
 
     return `
@@ -535,11 +578,63 @@ class App {
     // Clear input
     input.value = '';
 
+    // Show loading indicator before sending
+    this.showLoadingIndicator();
+
     // Send via WebSocket
     wsClient.sendMessage(this.currentSession.id, content);
 
     // Note: Don't add message to UI here - wait for server confirmation
     // to ensure it's saved to history
+  }
+
+  // Loading indicator with animated dots
+  showLoadingIndicator() {
+    const container = document.getElementById('messages-container');
+    if (!container) return;
+
+    // Remove existing loading indicator if any
+    this.hideLoadingIndicator();
+
+    // Set loading flag
+    this.isLoadingShowing = true;
+
+    // Append loading indicator
+    this.appendLoadingIndicator(container);
+
+    // Scroll to bottom
+    container.scrollTop = container.scrollHeight;
+
+    // Start animated dots
+    this.startLoadingAnimation();
+  }
+
+  hideLoadingIndicator() {
+    this.isLoadingShowing = false;
+    const loading = document.getElementById('loading-indicator');
+    if (loading) {
+      loading.remove();
+    }
+    this.stopLoadingAnimation();
+  }
+
+  startLoadingAnimation() {
+    this.stopLoadingAnimation(); // Clear any existing
+    let dotCount = 0;
+    this.loadingAnimationInterval = setInterval(() => {
+      const dots = document.querySelector('#loading-indicator .loading-dots');
+      if (dots) {
+        dotCount = (dotCount % 3) + 1;
+        dots.textContent = '.'.repeat(dotCount);
+      }
+    }, 500);
+  }
+
+  stopLoadingAnimation() {
+    if (this.loadingAnimationInterval) {
+      clearInterval(this.loadingAnimationInterval);
+      this.loadingAnimationInterval = null;
+    }
   }
 
   addMessage(message) {
@@ -549,18 +644,66 @@ class App {
       this.currentSession.messages = [];
     }
 
+    // Hide loading indicator when first agent content arrives (not user message)
+    if (message.sender === 'agent' && (message.type === 'text' || message.type === 'thinking' || message.type === 'tool_use')) {
+      this.hideLoadingIndicator();
+    }
+
+    // Skip status messages - they are no longer displayed
+    if (message.type === 'status') {
+      return;
+    }
+
     // Check if this is a streaming message (ID starts with "stream-")
     const isStreaming = message.id && message.id.startsWith('stream-');
     const isStreamingChunk = message.metadata?.isStreaming === true;
     const isComplete = message.metadata?.isComplete === true;
 
+    // Check if this is a tool_use message update
+    const isToolUse = message.type === 'tool_use';
+    const isToolUpdate = isToolUse && message.id && message.id.startsWith('tool-');
+
     console.log('addMessage:', {
       id: message.id,
+      type: message.type,
       isStreaming,
       isStreamingChunk,
       isComplete,
+      isToolUse,
+      isToolUpdate,
+      toolName: message.metadata?.toolName,
       contentLength: message.content?.length || 0
     });
+
+    // Handle tool_use message updates
+    if (isToolUpdate) {
+      const existingIndex = this.currentSession.messages.findIndex(m => m.id === message.id);
+
+      console.log('tool_use update:', {
+        messageId: message.id,
+        existingIndex,
+        isComplete,
+        existingMessages: this.currentSession.messages.filter(m => m.id?.startsWith('tool-')).map(m => ({ id: m.id, toolName: m.metadata?.toolName }))
+      });
+
+      if (existingIndex >= 0 && isComplete) {
+        // Update existing tool_use message to mark it as complete
+        this.currentSession.messages[existingIndex].metadata = {
+          ...this.currentSession.messages[existingIndex].metadata,
+          isComplete: true,
+          result: message.metadata?.result
+        };
+        this.renderMessages();
+        return;
+      } else if (!isComplete) {
+        // New tool_use message (in progress)
+        this.currentSession.messages.push(message);
+        this.renderMessages();
+        return;
+      }
+      // If complete but no existing message, ignore
+      return;
+    }
 
     if (isStreaming) {
       const existingIndex = this.currentSession.messages.findIndex(m => m.id === message.id);
@@ -955,20 +1098,7 @@ class App {
     // If task completed, remove loading status message
     if (status === 'completed' || status === 'failed') {
       this.removeLastStatusMessage();
-
-      // Show completion message
-      if (status === 'completed') {
-        this.addMessage({
-          id: `task-done-${Date.now()}`,
-          sessionId: this.currentSession?.id,
-          sender: 'system',
-          senderId: 'system',
-          senderName: '系统',
-          type: 'text',
-          content: '✅ 任务执行完成',
-          createdAt: new Date(),
-        });
-      }
+      // 任务完成不再显示系统提示消息
     }
   }
 
