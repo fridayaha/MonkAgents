@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="八次方技术 - 个人技术博客，分享AI智能体开发、多智能体协作技术，记录编程实践与学习心得">
+    <meta name="keywords" content="AI,多智能体,智能体协作,AI编程,技术博客,开发者,八次方">
+    <title>八次方技术 - AI智能体开发技术博客</title>
+    <link rel="icon" type="image/svg+xml" href="assets/images/favicon.svg">
+    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-container">
+            <a href="#" class="nav-logo">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">八次方技术</span>
+            </a>
+            <div class="nav-links">
+                <a href="#features">功能特性</a>
+                <a href="#agents">智能体</a>
+                <a href="#workflow">工作流程</a>
+                <a href="#quickstart">快速开始</a>
+                <a href="https://github.com/fridayaha/MonkAgents" target="_blank" class="nav-github">
+                    <svg viewBox="0 0 24 24" width="20" height="20">
+                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                    GitHub
+                </a>
+            </div>
+            <button class="nav-toggle" id="navToggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Hero 区域 -->
+    <section class="hero">
+        <div class="hero-bg">
+            <div class="hero-gradient"></div>
+            <div class="hero-particles" id="particles"></div>
+        </div>
+        <div class="hero-content">
+            <div class="hero-badge">
+                <span class="badge-icon">⚡</span>
+                <span>个人技术博客</span>
+            </div>
+            <h1 class="hero-title">
+                探索AI技术<br>
+                <span class="gradient-text">分享编程实践</span>
+            </h1>
+            <p class="hero-description">
+                八次方技术博客，专注于AI智能体开发、多智能体协作技术的研究与分享。<br>
+                MonkAgents开源项目，基于西游记角色模型，打造高效的多智能体协同方案。
+            </p>
+            <div class="hero-actions">
+                <a href="https://github.com/fridayaha/MonkAgents" target="_blank" class="btn btn-primary">
+                    <svg viewBox="0 0 24 24" width="20" height="20">
+                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                    GitHub 查看
+                </a>
+                <a href="#quickstart" class="btn btn-secondary">
+                    快速开始
+                </a>
+            </div>
+            <div class="hero-stats">
+                <div class="stat-item">
+                    <span class="stat-number">5+</span>
+                    <span class="stat-label">智能体角色</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">∞</span>
+                    <span class="stat-label">协作轮次</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">MIT</span>
+                    <span class="stat-label">开源协议</span>
+                </div>
+            </div>
+        </div>
+        <div class="hero-visual">
+            <div class="code-window">
+                <div class="code-header">
+                    <span class="code-dot red"></span>
+                    <span class="code-dot yellow"></span>
+                    <span class="code-dot green"></span>
+                    <span class="code-title">任务执行</span>
+                </div>
+                <div class="code-content">
+                    <div class="code-line"><span class="code-comment">// 创建一个待办事项应用</span></div>
+                    <div class="code-line"><span class="code-keyword">const</span> task = <span class="code-string">"开发待办事项应用"</span>;</div>
+                    <div class="code-line typing-cursor"></div>
+                    <div class="code-line agent-line">
+                        <span class="agent-badge master">🙏 唐僧</span>
+                        <span class="agent-text">开始规划任务...</span>
+                    </div>
+                    <div class="code-line agent-line">
+                        <span class="agent-badge executor">🐵 悟空</span>
+                        <span class="agent-text">正在编写代码...</span>
+                    </div>
+                    <div class="code-line agent-line">
+                        <span class="agent-badge inspector">🧑‍🦲 沙僧</span>
+                        <span class="agent-text">代码审查完成 ✓</span>
+                    </div>
+                    <div class="code-line"><span class="code-keyword">return</span> <span class="code-string">"✅ 任务完成"</span>;</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 功能特性 -->
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">核心特性</h2>
+                <p class="section-desc">强大而灵活的多智能体协作能力</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="32" height="32">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">智能任务分解</h3>
+                    <p class="feature-desc">自动将复杂任务分解为可执行的子任务，智能分配给最适合的智能体处理</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="32" height="32">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">实时流式输出</h3>
+                    <p class="feature-desc">WebSocket 实时推送智能体执行状态，让你随时掌控任务进度</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="32" height="32">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">多智能体协作</h3>
+                    <p class="feature-desc">基于角色的协作机制，智能体之间可以相互交接任务，形成完整工作流</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="32" height="32">
+                            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">CLI 工具集成</h3>
+                    <p class="feature-desc">支持 Claude Code、Cursor 等 AI 编程工具，无缝集成到你的开发工作流</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="32" height="32">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">检查点机制</h3>
+                    <p class="feature-desc">自动保存执行状态，支持任务中断恢复，保障长时间任务可靠执行</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="32" height="32">
+                            <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M3 9h18M9 21V9" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">可视化监控</h3>
+                    <p class="feature-desc">直观的 Web 界面，实时查看智能体状态、任务进度和执行日志</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 智能体角色 -->
+    <section class="agents" id="agents">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">智能体角色</h2>
+                <p class="section-desc">西游记角色模型，各司其职</p>
+            </div>
+            <div class="agents-showcase">
+                <div class="agent-card agent-master">
+                    <div class="agent-avatar">🙏</div>
+                    <div class="agent-info">
+                        <h3 class="agent-name">唐僧 · 规划者</h3>
+                        <span class="agent-role">Master</span>
+                        <p class="agent-desc">理解需求、制定计划、分配任务。作为团队的领导者，协调各方资源，把控整体方向。</p>
+                        <div class="agent-skills">
+                            <span class="skill-tag">需求分析</span>
+                            <span class="skill-tag">任务规划</span>
+                            <span class="skill-tag">资源协调</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="agent-card agent-executor">
+                    <div class="agent-avatar">🐵</div>
+                    <div class="agent-info">
+                        <h3 class="agent-name">孙悟空 · 执行者</h3>
+                        <span class="agent-role">Executor</span>
+                        <p class="agent-desc">主要执行者，处理编程、调试、测试等技术任务。七十二变，无所不能。</p>
+                        <div class="agent-skills">
+                            <span class="skill-tag">代码编写</span>
+                            <span class="skill-tag">问题修复</span>
+                            <span class="skill-tag">功能实现</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="agent-card agent-assistant">
+                    <div class="agent-avatar">🐷</div>
+                    <div class="agent-info">
+                        <h3 class="agent-name">猪八戒 · 助手</h3>
+                        <span class="agent-role">Assistant</span>
+                        <p class="agent-desc">辅助角色，处理文档编写、格式整理等任务。虽然偶尔偷懒，但关键时刻从不掉链子。</p>
+                        <div class="agent-skills">
+                            <span class="skill-tag">文档编写</span>
+                            <span class="skill-tag">格式整理</span>
+                            <span class="skill-tag">辅助支持</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="agent-card agent-inspector">
+                    <div class="agent-avatar">🧑‍🦲</div>
+                    <div class="agent-info">
+                        <h3 class="agent-name">沙和尚 · 检查者</h3>
+                        <span class="agent-role">Inspector</span>
+                        <p class="agent-desc">代码审查、质量保证。任劳任怨，默默把关，确保每一行代码都经得起考验。</p>
+                        <div class="agent-skills">
+                            <span class="skill-tag">代码审查</span>
+                            <span class="skill-tag">质量保证</span>
+                            <span class="skill-tag">最佳实践</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="agent-card agent-advisor">
+                    <div class="agent-avatar">🧘</div>
+                    <div class="agent-info">
+                        <h3 class="agent-name">如来佛祖 · 顾问</h3>
+                        <span class="agent-role">Advisor</span>
+                        <p class="agent-desc">资深顾问，提供架构设计和战略指导。关键时刻给予指点，化解疑难杂症。</p>
+                        <div class="agent-skills">
+                            <span class="skill-tag">架构设计</span>
+                            <span class="skill-tag">技术指导</span>
+                            <span class="skill-tag">问题诊断</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 工作流程 -->
+    <section class="workflow" id="workflow">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">工作流程</h2>
+                <p class="section-desc">智能协作，高效执行</p>
+            </div>
+            <div class="workflow-diagram">
+                <div class="workflow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-icon">📝</div>
+                    <div class="step-content">
+                        <h3>需求输入</h3>
+                        <p>提交任务</p>
+                    </div>
+                </div>
+                <div class="workflow-arrow">→</div>
+                <div class="workflow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-icon">🙏</div>
+                    <div class="step-content">
+                        <h3>任务规划</h3>
+                        <p>唐僧拆解</p>
+                    </div>
+                </div>
+                <div class="workflow-arrow">→</div>
+                <div class="workflow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-icon">🐵</div>
+                    <div class="step-content">
+                        <h3>智能执行</h3>
+                        <p>悟空编码</p>
+                    </div>
+                </div>
+                <div class="workflow-arrow">→</div>
+                <div class="workflow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-icon">🧑‍🦲</div>
+                    <div class="step-content">
+                        <h3>质量检查</h3>
+                        <p>沙僧审查</p>
+                    </div>
+                </div>
+                <div class="workflow-arrow">→</div>
+                <div class="workflow-step">
+                    <div class="step-number">5</div>
+                    <div class="step-icon">✅</div>
+                    <div class="step-content">
+                        <h3>任务完成</h3>
+                        <p>输出结果</p>
+                    </div>
+                </div>
+            </div>
+            <div class="workflow-handoff">
+                <h3>Handoff 任务交接机制</h3>
+                <p>智能体之间可以相互交接任务，形成完整的工作流闭环</p>
+                <div class="handoff-diagram">
+                    <div class="handoff-node">
+                        <span class="node-icon">🐵</span>
+                        <span class="node-label">执行</span>
+                    </div>
+                    <div class="handoff-arrow">→</div>
+                    <div class="handoff-node">
+                        <span class="node-icon">🧑‍🦲</span>
+                        <span class="node-label">审查</span>
+                    </div>
+                    <div class="handoff-arrow">→</div>
+                    <div class="handoff-node">
+                        <span class="node-icon">🐵</span>
+                        <span class="node-label">修复</span>
+                    </div>
+                    <div class="handoff-arrow">→</div>
+                    <div class="handoff-node">
+                        <span class="node-icon">🐷</span>
+                        <span class="node-label">文档</span>
+                    </div>
+                    <div class="handoff-arrow">→</div>
+                    <div class="handoff-node completed">
+                        <span class="node-icon">✅</span>
+                        <span class="node-label">完成</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 技术架构 -->
+    <section class="architecture">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">技术架构</h2>
+                <p class="section-desc">现代化技术栈，可靠可扩展</p>
+            </div>
+            <div class="tech-stack">
+                <div class="tech-item">
+                    <div class="tech-icon">
+                        <svg viewBox="0 0 24 24" width="40" height="40">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <span class="tech-name">NestJS</span>
+                    <span class="tech-desc">后端框架</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">
+                        <svg viewBox="0 0 24 24" width="40" height="40">
+                            <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <span class="tech-name">TypeScript</span>
+                    <span class="tech-desc">类型安全</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">
+                        <svg viewBox="0 0 24 24" width="40" height="40">
+                            <ellipse cx="12" cy="5" rx="9" ry="3" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <span class="tech-name">MySQL</span>
+                    <span class="tech-desc">数据持久化</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">
+                        <svg viewBox="0 0 24 24" width="40" height="40">
+                            <path d="M12 2L2 7v10l10 5 10-5V7L12 2z" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M12 22V12M12 12L2 7M12 12l10-5" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <span class="tech-name">Redis</span>
+                    <span class="tech-desc">缓存 & 消息</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">
+                        <svg viewBox="0 0 24 24" width="40" height="40">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <span class="tech-name">WebSocket</span>
+                    <span class="tech-desc">实时通信</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">
+                        <svg viewBox="0 0 24 24" width="40" height="40">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" stroke="currentColor" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                    <span class="tech-name">Docker</span>
+                    <span class="tech-desc">容器化部署</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 快速开始 -->
+    <section class="quickstart" id="quickstart">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">快速开始</h2>
+                <p class="section-desc">三步启动你的 AI 开发团队</p>
+            </div>
+            <div class="steps-container">
+                <div class="step-card">
+                    <div class="step-badge">Step 1</div>
+                    <h3>克隆项目</h3>
+                    <div class="code-block">
+                        <code>git clone https://github.com/fridayaha/MonkAgents.git</code>
+                        <code>cd monkagents</code>
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-badge">Step 2</div>
+                    <h3>安装依赖</h3>
+                    <div class="code-block">
+                        <code>npm install</code>
+                        <code>npm run build</code>
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-badge">Step 3</div>
+                    <h3>启动服务</h3>
+                    <div class="code-block">
+                        <code>npm run start:all</code>
+                    </div>
+                    <p class="step-note">访问 http://localhost:5173 开始使用</p>
+                </div>
+            </div>
+            <div class="quickstart-cta">
+                <a href="https://github.com/fridayaha/MonkAgents" target="_blank" class="btn btn-primary btn-large">
+                    <svg viewBox="0 0 24 24" width="20" height="20">
+                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                    在 GitHub 上查看
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 页脚 -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <a href="#" class="footer-logo">
+                        <span class="logo-icon">⚡</span>
+                        <span class="logo-text">八次方技术</span>
+                    </a>
+                    <p class="footer-tagline">探索AI技术，分享编程实践</p>
+                    <div class="footer-social">
+                        <a href="https://github.com/fridayaha/MonkAgents" target="_blank" class="social-link" title="GitHub">
+                            <svg viewBox="0 0 24 24" width="24" height="24">
+                                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+                <div class="footer-links">
+                    <div class="footer-column">
+                        <h4>产品</h4>
+                        <a href="#features">功能特性</a>
+                        <a href="#agents">智能体角色</a>
+                        <a href="#workflow">工作流程</a>
+                    </div>
+                    <div class="footer-column">
+                        <h4>资源</h4>
+                        <a href="https://github.com/fridayaha/MonkAgents" target="_blank">GitHub</a>
+                        <a href="#quickstart">快速开始</a>
+                        <a href="#">文档</a>
+                    </div>
+                    <div class="footer-column">
+                        <h4>社区</h4>
+                        <a href="#">问题反馈</a>
+                        <a href="#">功能建议</a>
+                        <a href="#">贡献指南</a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p class="copyright">© 2026 八次方技术. All rights reserved.</p>
+                <p class="icp">
+                    <a href="https://beian.miit.gov.cn/" target="_blank">京ICP备XXXXXXXX号-1</a>
+                    <span class="divider">|</span>
+                    <a href="http://www.beian.gov.cn/" target="_blank">京公网安备 XXXXXXXXXXX号</a>
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="assets/js/main.js"></script>
+</body>
+</html>

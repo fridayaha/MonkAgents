@@ -22,7 +22,7 @@ import { SummaryParser } from './helpers/summary-parser';
 const MAX_EXECUTION_ROUNDS = 10;
 
 /** 每个智能体最大 handoff 次数 */
-const MAX_HANDOFF_PER_AGENT = 3;
+const MAX_HANDOFF_PER_AGENT = 15;
 
 /** 智能体名称映射 */
 const AGENT_NAMES: Record<string, string> = {
@@ -485,7 +485,6 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
       );
 
       this.logger.log(`🚀 启动智能体: ${agentName} | 任务: ${nextSubtask.description.substring(0, 50)}...`);
-      this.logger.debug(`📊 上下文: ${executedSubtasks.length} 个前置任务, handoff=${pendingHandoff ? 'yes' : 'no'}`);
 
       try {
         // 执行智能体
@@ -503,11 +502,6 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
 
         // 检查执行摘要中的 handoff 建议
         const suggestion = SummaryParser.getFirstHandoffSuggestion(result.executionSummary);
-
-        // 调试日志
-        this.logger.debug(`执行结果: success=${result.success}`);
-        this.logger.debug(`执行摘要: ${JSON.stringify(result.executionSummary, null, 2)}`);
-        this.logger.debug(`Handoff 建议: ${suggestion ? JSON.stringify(suggestion) : 'null'}`);
 
         if (suggestion && result.success) {
           // 有 handoff 建议
@@ -637,7 +631,6 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
       );
       if (!hasSourceSummary) {
         previousSummaries.push(handoff.executionSummary);
-        this.logger.debug(`添加 handoff 源摘要到上下文`);
       }
     }
 

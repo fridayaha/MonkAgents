@@ -64,7 +64,6 @@ export abstract class AgentBase {
         }
       }
 
-      this.logger.debug(`Executing CLI: ${actualCommand} ${this.config.cli.args.join(' ')}`);
       this.status = 'executing';
 
       // Prepare environment
@@ -86,9 +85,7 @@ export abstract class AgentBase {
       let error = '';
 
       this.currentProcess.stdout?.on('data', (data) => {
-        const chunk = data.toString();
-        output += chunk;
-        this.logger.debug(`CLI output: ${chunk}`);
+        output += data.toString();
       });
 
       this.currentProcess.stderr?.on('data', (data) => {

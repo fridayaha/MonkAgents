@@ -103,7 +103,6 @@ export class ConfigService {
           const content = readFileSync(filePath, 'utf-8');
           const config = parse(content) as AgentConfig;
           this.agentConfigs.set(config.id, config);
-          this.logger.debug(`Loaded agent config: ${config.id}`);
         }
       } catch {
         this.logger.warn(`Agent config not found: ${file}`);

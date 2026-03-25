@@ -1,4 +1,3 @@
-import { Logger } from '@nestjs/common';
 import {
   CliMessage,
   CliOutputEvent,
@@ -11,7 +10,6 @@ import {
  * Supports both regular messages and stream_event messages (with --include-partial-messages)
  */
 export class CliOutputParser {
-  private readonly logger = new Logger(CliOutputParser.name);
   private buffer: string = '';
   private sessionId: string | null = null;
   private currentMessageId: string | null = null;
@@ -37,9 +35,7 @@ export class CliOutputParser {
         const parsedEvents = this.parseMessage(message);
         events.push(...parsedEvents);
       } catch (error) {
-        // If JSON parse fails, might be incomplete or non-JSON output
-        this.logger.debug(`Failed to parse line: ${trimmed.substring(0, 100)}...`);
-        // Treat as plain text output
+        // If JSON parse fails, treat as plain text output
         events.push({
           type: 'text',
           content: trimmed,

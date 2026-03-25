@@ -16,7 +16,12 @@
       "Bash(curl:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(wmic process:*)"
+      "Bash(wmic process:*)",
+      "Bash(tasklist:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:dify.ai)",
+      "Bash(cd website:*)",
+      "Bash(node:*)"
     ]
   },
   "bypassPermissions": true
