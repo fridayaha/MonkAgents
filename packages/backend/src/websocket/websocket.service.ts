@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Socket, Server } from 'socket.io';
-import { Message, StreamChunk, CliOutputEvent, MessageType } from '@monkagents/shared';
+import { Message, StreamChunk, CliOutputEvent, MessageType, PermissionRequestMessage, PermissionResponseEvent } from '@monkagents/shared';
 import { TangsengAgent } from '../agents/tangseng.agent';
 import { TasksService } from '../tasks/tasks.service';
 import { AgentMentionService, ParsedMessage } from '../agents/agent-mention.service';
@@ -40,6 +40,12 @@ export class WebSocketService implements OnModuleInit {
   private tangsengAgent: TangsengAgent | null = null;
   private tasksService: TasksService | null = null;
   private sessionService: SessionService | null = null;
+
+  // Permission request callbacks - map requestId -> resolve function
+  private permissionCallbacks: Map<string, {
+    resolve: (response: PermissionResponseEvent) => void;
+    sessionId: string;
+  }> = new Map();
 
   constructor(
     private readonly mentionService: AgentMentionService,
@@ -309,6 +315,39 @@ export class WebSocketService implements OnModuleInit {
       this.emitTaskStatus(taskId, task.status, '任务已取消');
     } catch (error) {
       this.logger.error(`Error cancelling task: ${error}`);
+    }
+  }
+
+  /**
+   * Send permission request to client
+   * Returns a promise that resolves when user responds
+   */
+  async sendPermissionRequest(
+    sessionId: string,
+    request: PermissionRequestMessage,
+  ): Promise<PermissionResponseEvent> {
+    return new Promise((resolve) => {
+      // Store callback for later resolution
+      this.permissionCallbacks.set(request.id, { resolve, sessionId });
+
+      // Emit to session
+      this.emitToSession(sessionId, 'permission_request', request);
+
+      this.logger.log(`Permission request sent: ${request.id} - ${request.toolName}`);
+    });
+  }
+
+  /**
+   * Handle permission response from client
+   */
+  async handlePermissionResponse(response: PermissionResponseEvent): Promise<void> {
+    const callback = this.permissionCallbacks.get(response.requestId);
+    if (callback) {
+      this.permissionCallbacks.delete(response.requestId);
+      callback.resolve(response);
+      this.logger.log(`Permission response received: ${response.requestId} - ${response.action}`);
+    } else {
+      this.logger.warn(`Received permission response for unknown request: ${response.requestId}`);
     }
   }
 

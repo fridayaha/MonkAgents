@@ -9,5 +9,7 @@
   "moduleNameMapper": {
     "^@monkagents/shared$": "<rootDir>/../../shared/src",
     "^src/(.*)$": "<rootDir>/../src/$1"
-  }
+  },
+  "setupFilesAfterEnv": ["<rootDir>/jest-setup.ts"],
+  "globalTeardown": "<rootDir>/jest-global-teardown.ts"
 }

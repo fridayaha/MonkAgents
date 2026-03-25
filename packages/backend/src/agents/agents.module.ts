@@ -10,10 +10,11 @@ import { ShasengAgent } from './shaseng.agent';
 import { RulaiAgent } from './rulai.agent';
 import { AgentMentionService } from './agent-mention.service';
 import { AgentCollaborationService } from './agent-collaboration.service';
-import { ChatService } from './chat.service';
+import { PermissionService } from './permission.service';
 import { Agent } from '../database/entities/agent.entity';
 import { ConfigModule } from '../config/config.module';
 import { SessionModule } from '../session/session.module';
+import { RedisModule } from '../redis/redis.module';
 import { AgentRegistry } from './agent-registry.service';
 
 @Module({
@@ -21,6 +22,7 @@ import { AgentRegistry } from './agent-registry.service';
     TypeOrmModule.forFeature([Agent]),
     ConfigModule,
     SessionModule,
+    RedisModule,
   ],
   providers: [
     AgentRegistry, // New agent registry
@@ -33,7 +35,7 @@ import { AgentRegistry } from './agent-registry.service';
     RulaiAgent,
     AgentMentionService,
     AgentCollaborationService,
-    ChatService,
+    PermissionService,
   ],
   controllers: [AgentsController],
   exports: [
@@ -47,7 +49,7 @@ import { AgentRegistry } from './agent-registry.service';
     RulaiAgent,
     AgentMentionService,
     AgentCollaborationService,
-    ChatService,
+    PermissionService,
   ],
 })
 export class AgentsModule {}

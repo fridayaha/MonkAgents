@@ -1,0 +1,20 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "src",
+  "testRegex": ".*\\.spec\\.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "collectCoverageFrom": [
+    "**/*.(t|j)s"
+  ],
+  "coverageDirectory": "../coverage",
+  "testEnvironment": "node",
+  "moduleNameMapper": {
+    "^@monkagents/shared$": "<rootDir>/../../shared/src",
+    "^src/(.*)$": "<rootDir>/$1"
+  },
+  "setupFilesAfterEnv": ["<rootDir>/../test/jest-setup.ts"],
+  "globalSetup": "<rootDir>/../test/jest-global-setup.ts",
+  "globalTeardown": "<rootDir>/../test/jest-global-teardown.ts"
+}

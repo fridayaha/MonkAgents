@@ -13,6 +13,7 @@ import { ExecutableAgentBase } from './executable-agent-base';
 import { WebSocketService } from '../websocket/websocket.service';
 import { AgentRegistry } from './agent-registry.service';
 import { BaseAgentService } from './base-agent.service';
+import { PermissionService } from './permission.service';
 
 /**
  * 智能体选择结果
@@ -37,6 +38,7 @@ export class AgentsService implements OnModuleInit {
     private readonly bajieAgent: BajieAgent,
     private readonly shasengAgent: ShasengAgent,
     private readonly rulaiAgent: RulaiAgent,
+    private readonly permissionService: PermissionService,
     @InjectRepository(Agent)
     private readonly agentRepository: Repository<Agent>,
   ) {}
@@ -72,7 +74,14 @@ export class AgentsService implements OnModuleInit {
     // depending on implementation, but for consistency we'll set it
     this.tangsengAgent.setWebSocketService(wsService);
 
-    this.logger.log('WebSocket service set on all agents and agents registered with registry');
+    // Set PermissionService on all executable agents
+    this.wukongAgent.setPermissionService(this.permissionService);
+    this.bajieAgent.setPermissionService(this.permissionService);
+    this.shasengAgent.setPermissionService(this.permissionService);
+    this.rulaiAgent.setPermissionService(this.permissionService);
+    this.tangsengAgent.setPermissionService(this.permissionService);
+
+    this.logger.log('WebSocket service and Permission service set on all agents');
   }
 
   /**

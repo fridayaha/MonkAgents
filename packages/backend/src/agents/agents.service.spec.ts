@@ -10,6 +10,7 @@ import { BajieAgent } from './bajie.agent';
 import { ShasengAgent } from './shaseng.agent';
 import { RulaiAgent } from './rulai.agent';
 import { AgentRegistry } from './agent-registry.service';
+import { PermissionService } from './permission.service';
 
 describe('AgentsService', () => {
   let service: AgentsService;
@@ -117,6 +118,14 @@ describe('AgentsService', () => {
     unregisterAgent: jest.fn(),
   };
 
+  const mockPermissionService = {
+    getAllowedTools: jest.fn().mockResolvedValue([]),
+    decide: jest.fn(),
+    saveDecision: jest.fn(),
+    getRememberedDecisions: jest.fn().mockResolvedValue([]),
+    createRequestFromDenial: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -173,6 +182,10 @@ describe('AgentsService', () => {
         {
           provide: RulaiAgent,
           useValue: mockRulaiAgent,
+        },
+        {
+          provide: PermissionService,
+          useValue: mockPermissionService,
         },
       ],
     }).compile();

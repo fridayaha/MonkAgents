@@ -7,10 +7,13 @@ import {
   ExecutionSummary,
   FileChange,
   ExecutionSummaryBuilder,
+  PermissionDenial,
+  PermissionRequestMessage,
 } from '@monkagents/shared';
 import { AgentExecutionContext, AgentExecutionCallbacks, ExecutableAgent } from './interfaces/agent.interface';
 import { CliExecutor, DEFAULT_CLI_EXECUTION_CONFIG, CliExecutionConfig } from './helpers/cli-executor';
 import { SummaryParser } from './helpers/summary-parser';
+import { PermissionService } from './permission.service';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -28,6 +31,7 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   protected config: AgentConfig;
   protected status: AgentStatus = 'idle';
   protected wsService: any = null; // Using any to avoid circular dependency issues
+  protected permissionService: PermissionService | null = null; // 权限服务
   private cliExecutor?: CliExecutor;  // Make it optional initially
   private executionConfig: CliExecutionConfig;
 
@@ -58,6 +62,13 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     (this.logger as any).context = `${config.name}Agent`;
     // Now create CliExecutor with properly configured config
     this.cliExecutor = new CliExecutor(config, this.executionConfig);
+  }
+
+  /**
+   * Set permission service
+   */
+  setPermissionService(service: PermissionService): void {
+    this.permissionService = service;
   }
 
   /**
@@ -342,6 +353,7 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
   /**
    * Execute a task using CLI
+   * 支持权限确认流程
    */
   async execute(
     context: AgentExecutionContext,
@@ -350,7 +362,8 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     const { sessionId, workingDirectory, prompt, sessionWorkingDirectory } = context;
     const startTime = Date.now();
 
-    this.logger.log(`Executing task: ${prompt.substring(0, 50)}...`);
+    // 简洁的日志输出
+    this.logger.log(this.formatTaskLog(prompt));
 
     this.status = 'executing';
 
@@ -361,6 +374,16 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
     // Ensure CliExecutor is initialized
     this.ensureCliExecutor();
+
+    // ===== 获取允许的工具列表 =====
+    let allowedTools: string[] = [];
+    if (this.permissionService && sessionId) {
+      allowedTools = await this.permissionService.getAllowedTools(this.config.id, sessionId);
+      this.logger.debug(`Allowed tools for ${this.config.id}: ${allowedTools.join(', ')}`);
+    }
+
+    // 设置允许的工具到 CliExecutor
+    this.cliExecutor!.setAllowedTools(allowedTools);
 
     // Start activity-based timeout check
     this.cliExecutor!.startActivityCheck();
@@ -379,6 +402,39 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
       // Execute via CLI executor
       const result = await this.cliExecutor!.execute(fullPrompt, workDir, handleEvent);
+
+      // ===== 处理权限拒绝 =====
+      if (result.permissionDenials && result.permissionDenials.length > 0) {
+        this.logger.log(`Permission denied for ${result.permissionDenials.length} tools`);
+
+        // 处理权限请求
+        const permissionGranted = await this.handlePermissionDenials(
+          result.permissionDenials,
+          sessionId,
+        );
+
+        if (permissionGranted) {
+          // 用户授权了，重新执行
+          this.logger.log('Permission granted, retrying execution...');
+          this.cliExecutor!.stopActivityCheck();
+
+          // 重新获取允许的工具列表（包含新授权的）
+          allowedTools = await this.permissionService!.getAllowedTools(this.config.id, sessionId);
+          this.cliExecutor!.setAllowedTools(allowedTools);
+          this.cliExecutor!.startActivityCheck();
+
+          // 重新执行
+          const retryResult = await this.cliExecutor!.execute(fullPrompt, workDir, handleEvent);
+
+          // 更新结果
+          Object.assign(result, retryResult);
+        } else {
+          // 用户拒绝或没有响应
+          this.logger.warn('Permission denied by user or no response');
+          result.success = false;
+          result.error = 'Permission denied by user';
+        }
+      }
 
       // ===== 执行后：检测文件变更并生成摘要 =====
       const filesChanged = this.detectFileChanges();
@@ -421,6 +477,102 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       }
 
       throw error;
+    }
+  }
+
+  /**
+   * 处理权限拒绝
+   * 向用户发送权限请求并等待响应
+   * @returns true 如果用户授权了，false 如果拒绝
+   */
+  private async handlePermissionDenials(
+    denials: PermissionDenial[],
+    sessionId: string,
+  ): Promise<boolean> {
+    if (!this.wsService || !this.permissionService) {
+      this.logger.warn('WebSocket or PermissionService not available, cannot request permission');
+      return false;
+    }
+
+    // 处理第一个权限拒绝（通常只有一个）
+    const denial = denials[0];
+
+    // 创建权限请求
+    const request = this.permissionService.createRequestFromDenial(
+      denial,
+      sessionId,
+      this.config.id,
+    );
+
+    // 构建权限请求消息
+    const permissionMessage: PermissionRequestMessage = {
+      type: 'permission_request',
+      id: request.id,
+      sessionId,
+      agentId: this.config.id,
+      agentName: this.config.name,
+      toolName: request.toolName,
+      toolCategory: request.toolCategory,
+      input: request.input,
+      risk: request.risk,
+      timestamp: request.timestamp,
+      // 构建人类可读的描述
+      description: this.buildPermissionDescription(request.toolName, request.input),
+    };
+
+    this.logger.log(`Sending permission request: ${request.toolName}`);
+
+    try {
+      // 发送权限请求到前端并等待响应
+      const response = await this.wsService.sendPermissionRequest(sessionId, permissionMessage);
+
+      if (response.action === 'allow') {
+        // 保存决定
+        await this.permissionService.saveDecision(
+          sessionId,
+          response.remember ? request.toolName : request.toolName,
+          'allow',
+        );
+
+        // 如果用户选择"记住此决定"，保存到会话
+        if (response.remember) {
+          this.logger.log(`Remembering permission decision for ${request.toolName}`);
+        }
+
+        return true;
+      } else {
+        // 用户拒绝
+        return false;
+      }
+    } catch (error) {
+      this.logger.error(`Error handling permission request: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * 构建权限请求的人类可读描述
+   */
+  private buildPermissionDescription(
+    toolName: string,
+    input: Record<string, unknown>,
+  ): string {
+    switch (toolName) {
+      case 'WebFetch':
+      case 'WebSearch':
+        return `访问网络: ${(input.url as string) || (input.query as string) || '未知地址'}`;
+      case 'Bash':
+        return `执行命令: ${(input.command as string) || '未知命令'}`;
+      case 'Read':
+        return `读取文件: ${(input.file_path as string) || '未知文件'}`;
+      case 'Write':
+        return `写入文件: ${(input.file_path as string) || '未知文件'}`;
+      case 'Edit':
+        return `编辑文件: ${(input.file_path as string) || '未知文件'}`;
+      case 'Agent':
+        return `调用子智能体: ${(input.agent_id as string) || '未知智能体'}`;
+      default:
+        return `使用工具: ${toolName}`;
     }
   }
 
@@ -711,7 +863,10 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         break;
 
       case 'thinking':
-        // Handle thinking events if needed
+        // Broadcast thinking status to frontend for UI feedback
+        // isPartial=true means thinking in progress (show indicator)
+        // isPartial=false means thinking complete (hide indicator)
+        this.broadcastThinkingStatus(sessionId, event.isPartial === false);
         break;
     }
   }
@@ -1009,6 +1164,54 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         result
       }).catch((err: Error) => {
         this.logger.error(`Failed to update tool message in database: ${err}`);
+      });
+    }
+  }
+
+  /**
+   * Format task log for cleaner output
+   * Extracts task type and key info from prompt
+   */
+  private formatTaskLog(prompt: string): string {
+    // 检测任务类型
+    if (prompt.includes('【闲聊任务】')) {
+      // 提取用户消息
+      const userMsgMatch = prompt.match(/【用户消息】\n(.+?)(?:\n【|$)/s);
+      const userMsg = userMsgMatch ? userMsgMatch[1].trim() : '闲聊';
+      const truncatedMsg = userMsg.length > 30 ? userMsg.substring(0, 30) + '...' : userMsg;
+      return `闲聊回复: "${truncatedMsg}"`;
+    }
+
+    if (prompt.includes('【当前任务】') || prompt.includes('【执行指令】')) {
+      // 提取任务描述
+      const taskMatch = prompt.match(/【当前任务】\n(.+?)(?:\n【|$)/s) ||
+                        prompt.match(/请执行以下任务[：:]\s*(.+?)(?:\n\n|$)/s);
+      const task = taskMatch ? taskMatch[1].trim() : '';
+      const truncatedTask = task.length > 40 ? task.substring(0, 40) + '...' : task;
+      return `执行任务: "${truncatedTask}"`;
+    }
+
+    // 默认情况：显示提示词前30个字符
+    const truncated = prompt.substring(0, 30).replace(/\n/g, ' ');
+    return `执行: "${truncated}..."`;
+  }
+
+  /**
+   * Broadcast thinking status to frontend
+   * Shows "正在思考..." loading indicator
+   */
+  protected broadcastThinkingStatus(sessionId: string, isComplete: boolean): void {
+    if (this.wsService) {
+      this.wsService.emitToSession(sessionId, 'message', {
+        id: `thinking-${this.config.id}`,
+        sessionId,
+        sender: 'agent',
+        senderId: this.config.id,
+        senderName: this.config.name,
+        type: 'thinking',
+        content: '',
+        createdAt: new Date(),
+        metadata: { isThinking: true, isComplete },
       });
     }
   }

@@ -24,6 +24,10 @@ class App {
     this.loadingAnimationInterval = null;
     this.loadingAgentId = null;
 
+    // Thinking state
+    this.thinkingAnimationInterval = null;
+    this.isThinkingShowing = false;
+
     // Generation state
     this.isGenerating = false;
     this.currentTaskId = null;
@@ -381,7 +385,7 @@ class App {
     let contentHtml = this.formatContent(msg.content);
 
     // Skip messages with no content after filtering (e.g., only execution_summary)
-    if (!contentHtml && msg.type !== 'tool_use') {
+    if (!contentHtml && msg.type !== 'tool_use' && msg.type !== 'permission_request') {
       return '';
     }
 
@@ -417,6 +421,11 @@ class App {
       }
     }
 
+    // Special rendering for permission_request
+    if (msg.type === 'permission_request' && msg.metadata?.permissionRequest) {
+      contentHtml = this.renderPermissionCard(msg.metadata.permissionRequest);
+    }
+
     return `
       <div class="message ${msg.sender} ${typeClass}" data-msg-id="${msg.id}">
         <div class="message-header">
@@ -438,10 +447,12 @@ class App {
       return;
     }
 
-    container.innerHTML = this.tasks.map(task => `
+    container.innerHTML = this.tasks.map(task => {
+      const taskTitle = task.userPrompt ? task.userPrompt.substring(0, 50) + (task.userPrompt.length > 50 ? '...' : '') : '未命名任务';
+      return `
       <div class="task-card" data-task-id="${task.id}">
         <div class="task-card-header">
-          <div class="task-title">${task.title || '未命名任务'}</div>
+          <div class="task-title">${this.escapeHtml(taskTitle)}</div>
           <span class="task-status ${task.status}">${this.getStatusText(task.status)}</span>
         </div>
         <div class="task-meta">
@@ -450,7 +461,7 @@ class App {
           <span>📊 ${task.subtasks?.length || 0} 个子任务</span>
         </div>
       </div>
-    `).join('');
+    `}).join('');
 
     // Bind click events
     container.querySelectorAll('.task-card').forEach(card => {
@@ -612,6 +623,10 @@ class App {
     // Reset cancelled state for new task
     this.isCancelled = false;
 
+    // Reset thinking state for new task
+    this.isThinkingShowing = false;
+    this.hideThinkingIndicator();
+
     // Set generating state
     this.setGeneratingState(true);
 
@@ -733,6 +748,61 @@ class App {
     }
   }
 
+  // Thinking indicator - same simple style as loading indicator
+  showThinkingIndicator(agentName) {
+    // Already showing, don't recreate
+    if (this.isThinkingShowing) return;
+
+    const container = document.getElementById('messages-container');
+    if (!container) return;
+
+    // Use the same simple style as loading indicator
+    const thinkingHtml = `
+      <div class="thinking-indicator" id="thinking-indicator">
+        <div class="thinking-spinner"></div>
+        <span class="thinking-text">正在思考</span><span class="thinking-dots"></span>
+      </div>
+    `;
+    container.insertAdjacentHTML('beforeend', thinkingHtml);
+
+    // Set state
+    this.isThinkingShowing = true;
+
+    // Scroll to bottom
+    container.scrollTop = container.scrollHeight;
+
+    // Start animated dots
+    this.startThinkingAnimation();
+  }
+
+  hideThinkingIndicator() {
+    this.isThinkingShowing = false;
+    const thinking = document.getElementById('thinking-indicator');
+    if (thinking) {
+      thinking.remove();
+    }
+    this.stopThinkingAnimation();
+  }
+
+  startThinkingAnimation() {
+    this.stopThinkingAnimation(); // Clear any existing
+    let dotCount = 0;
+    this.thinkingAnimationInterval = setInterval(() => {
+      const dots = document.querySelector('#thinking-indicator .thinking-dots');
+      if (dots) {
+        dotCount = (dotCount % 3) + 1;
+        dots.textContent = '.'.repeat(dotCount);
+      }
+    }, 500);
+  }
+
+  stopThinkingAnimation() {
+    if (this.thinkingAnimationInterval) {
+      clearInterval(this.thinkingAnimationInterval);
+      this.thinkingAnimationInterval = null;
+    }
+  }
+
   addMessage(message) {
     if (!this.currentSession) return;
 
@@ -746,13 +816,31 @@ class App {
     }
 
     // Hide loading indicator when first agent content arrives (not user message)
-    if (message.sender === 'agent' && (message.type === 'text' || message.type === 'thinking' || message.type === 'tool_use')) {
+    // Note: Don't hide thinking indicator here - it's handled by thinking message logic
+    if (message.sender === 'agent' && (message.type === 'text' || message.type === 'tool_use')) {
       this.hideLoadingIndicator();
+      this.hideThinkingIndicator();
     }
 
     // Skip status messages - they are no longer displayed
     if (message.type === 'status') {
       return;
+    }
+
+    // Handle thinking status messages - show/hide "正在思考..." indicator
+    if (message.type === 'thinking' && message.metadata?.isThinking) {
+      console.log('Thinking message received:', {
+        senderName: message.senderName,
+        isComplete: message.metadata.isComplete
+      });
+      if (message.metadata.isComplete) {
+        // Thinking complete, hide the indicator
+        this.hideThinkingIndicator();
+      } else {
+        // Thinking started, show the indicator
+        this.showThinkingIndicator(message.senderName);
+      }
+      return; // Don't add thinking messages to the message list
     }
 
     // Check if this is a streaming message (ID starts with "stream-")
@@ -1190,6 +1278,216 @@ class App {
         }
       }
     });
+
+    // Handle permission request
+    wsClient.on('permission_request', (request) => {
+      this.handlePermissionRequest(request);
+    });
+  }
+
+  // ==================== Permission Handling ====================
+
+  /**
+   * Handle permission request from server
+   */
+  handlePermissionRequest(request) {
+    console.log('Permission request received:', request);
+
+    // Create permission card and add to messages
+    const permissionMessage = {
+      id: `permission-${request.id}`,
+      sessionId: this.currentSession?.id,
+      sender: 'system',
+      senderId: 'system',
+      senderName: '系统',
+      type: 'permission_request',
+      content: '',
+      metadata: { permissionRequest: request },
+      createdAt: new Date(),
+    };
+
+    this.addMessage(permissionMessage);
+  }
+
+  /**
+   * Render permission request card
+   */
+  renderPermissionCard(request) {
+    const riskLabels = {
+      low: '🟢 低风险',
+      medium: '🟡 中风险',
+      high: '🔴 高风险'
+    };
+
+    const toolIcons = {
+      Bash: '⌨️',
+      Read: '📖',
+      Write: '✏️',
+      Edit: '📝',
+      Glob: '🔍',
+      Grep: '🔎',
+      WebFetch: '🌐',
+      WebSearch: '🔍',
+      Agent: '🤖',
+    };
+
+    const icon = toolIcons[request.toolName] || '🔧';
+
+    return `
+      <div class="permission-card" data-request-id="${request.id}">
+        <div class="permission-header">
+          <span class="permission-agent">${request.agentName}</span>
+          <span class="permission-risk risk-${request.risk}">
+            ${riskLabels[request.risk] || '⚠️ 未知风险'}
+          </span>
+        </div>
+
+        <div class="permission-body">
+          <div class="permission-tool">
+            <span class="tool-icon">${icon}</span>
+            <span class="tool-name">${request.toolName}</span>
+          </div>
+
+          <div class="permission-detail">
+            ${this.renderToolDetail(request)}
+          </div>
+        </div>
+
+        <div class="permission-actions">
+          <button class="btn-allow" onclick="app.handlePermissionAllow('${request.id}')">
+            ✓ 允许
+          </button>
+          <button class="btn-deny" onclick="app.handlePermissionDeny('${request.id}')">
+            ✗ 拒绝
+          </button>
+          <label class="remember-checkbox">
+            <input type="checkbox" id="remember-${request.id}">
+            记住此决定
+          </label>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render tool detail based on tool type
+   */
+  renderToolDetail(request) {
+    const input = request.input || {};
+
+    switch (request.toolName) {
+      case 'Bash':
+        return `
+          <div class="command-preview">
+            <code>${this.escapeHtml(input.command || '')}</code>
+          </div>
+          ${input.description ? `<p class="command-desc">${this.escapeHtml(input.description)}</p>` : ''}
+        `;
+
+      case 'Write':
+      case 'Edit':
+        return `
+          <div class="file-path">
+            📄 ${this.escapeHtml(input.file_path || '')}
+          </div>
+          ${request.toolName === 'Edit' ? `
+            <div class="edit-preview">
+              <div class="old-content">
+                <span class="label">原内容:</span>
+                <code>${this.escapeHtml(this.truncate(input.old_string || '', 100))}</code>
+              </div>
+              <div class="new-content">
+                <span class="label">新内容:</span>
+                <code>${this.escapeHtml(this.truncate(input.new_string || '', 100))}</code>
+              </div>
+            </div>
+          ` : `
+            <div class="write-preview">
+              <span class="label">创建新文件</span>
+            </div>
+          `}
+        `;
+
+      case 'WebFetch':
+        return `
+          <div class="network-request">
+            🌐 ${this.escapeHtml(input.url || '')}
+          </div>
+          ${input.prompt ? `<p class="fetch-prompt">${this.escapeHtml(input.prompt)}</p>` : ''}
+        `;
+
+      case 'WebSearch':
+        return `
+          <div class="search-query">
+            🔍 ${this.escapeHtml(input.query || '')}
+          </div>
+        `;
+
+      case 'Agent':
+        return `
+          <div class="agent-call">
+            🤖 调用智能体: ${this.escapeHtml(input.agent_id || input.name || '未知')}
+          </div>
+          ${input.prompt ? `<p class="agent-prompt">${this.escapeHtml(this.truncate(input.prompt, 100))}</p>` : ''}
+        `;
+
+      default:
+        if (input.file_path) {
+          return `<div class="file-path">📄 ${this.escapeHtml(input.file_path)}</div>`;
+        }
+        return `<pre>${this.escapeHtml(JSON.stringify(input, null, 2))}</pre>`;
+    }
+  }
+
+  /**
+   * Handle permission allow
+   */
+  handlePermissionAllow(requestId) {
+    const rememberEl = document.getElementById(`remember-${requestId}`);
+    const remember = rememberEl ? rememberEl.checked : false;
+
+    wsClient.sendPermissionResponse(requestId, 'allow', remember);
+
+    // Remove the permission card
+    this.removePermissionCard(requestId);
+  }
+
+  /**
+   * Handle permission deny
+   */
+  handlePermissionDeny(requestId) {
+    const rememberEl = document.getElementById(`remember-${requestId}`);
+    const remember = rememberEl ? rememberEl.checked : false;
+
+    wsClient.sendPermissionResponse(requestId, 'deny', remember);
+
+    // Remove the permission card
+    this.removePermissionCard(requestId);
+  }
+
+  /**
+   * Remove permission card from UI
+   */
+  removePermissionCard(requestId) {
+    // Remove from messages array
+    if (this.currentSession?.messages) {
+      const index = this.currentSession.messages.findIndex(
+        m => m.id === `permission-${requestId}`
+      );
+      if (index > -1) {
+        this.currentSession.messages.splice(index, 1);
+        this.renderMessages();
+      }
+    }
+  }
+
+  /**
+   * Truncate string
+   */
+  truncate(str, maxLength) {
+    if (!str) return '';
+    if (str.length <= maxLength) return str;
+    return str.substring(0, maxLength) + '...';
   }
 
   updateAgentStatus(agentId, status, action) {

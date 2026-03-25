@@ -592,7 +592,14 @@ body {
   text-align: left;
 }
 
-/* Loading Indicator */
+.thinking-indicator .thinking-dots {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  min-width: 20px;
+  text-align: left;
+}
+
+/* Loading Indicator (deprecated - use thinking-indicator) */
 .loading-indicator {
   animation: fadeIn 0.3s ease-in;
 }
@@ -1373,5 +1380,249 @@ body {
   .modal-content {
     min-width: 90%;
     margin: 16px;
+  }
+}
+
+/* ==================== Permission Card Styles ==================== */
+
+.permission-card {
+  background: var(--chat-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 8px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.permission-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.permission-agent {
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.permission-risk {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.permission-risk.risk-low {
+  background: #d4edda;
+  color: #155724;
+}
+
+.permission-risk.risk-medium {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.permission-risk.risk-high {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.permission-body {
+  padding: 16px;
+}
+
+.permission-tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.permission-tool .tool-icon {
+  font-size: 1.5rem;
+}
+
+.permission-tool .tool-name {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-color);
+}
+
+.permission-detail {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 0.875rem;
+}
+
+.permission-detail .command-preview {
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.permission-detail .command-desc {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.permission-detail .file-path {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  color: var(--primary-color);
+  margin-bottom: 8px;
+}
+
+.permission-detail .edit-preview,
+.permission-detail .write-preview {
+  margin-top: 12px;
+}
+
+.permission-detail .edit-preview .label,
+.permission-detail .write-preview .label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.permission-detail .old-content,
+.permission-detail .new-content {
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.permission-detail .old-content {
+  border-left: 3px solid var(--danger-color);
+}
+
+.permission-detail .new-content {
+  border-left: 3px solid var(--success-color);
+}
+
+.permission-detail .old-content code,
+.permission-detail .new-content code {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--text-color);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.permission-detail .network-request,
+.permission-detail .search-query {
+  color: var(--primary-color);
+  word-break: break-all;
+}
+
+.permission-detail .agent-call {
+  color: var(--tangseng-color);
+  font-weight: 500;
+}
+
+.permission-detail .fetch-prompt,
+.permission-detail .agent-prompt {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.permission-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-top: 1px solid var(--border-color);
+}
+
+.permission-actions .btn-allow,
+.permission-actions .btn-deny {
+  flex: 1;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.permission-actions .btn-allow {
+  background: var(--success-color);
+  color: white;
+}
+
+.permission-actions .btn-allow:hover {
+  background: #218838;
+  transform: translateY(-1px);
+}
+
+.permission-actions .btn-deny {
+  background: var(--danger-color);
+  color: white;
+}
+
+.permission-actions .btn-deny:hover {
+  background: #c82333;
+  transform: translateY(-1px);
+}
+
+.permission-actions .remember-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.permission-actions .remember-checkbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+/* Dark theme adjustments for permission card */
+@media (prefers-color-scheme: dark) {
+  .permission-card {
+    background: #2d2d2d;
+    border-color: #444;
+  }
+
+  .permission-header {
+    background: linear-gradient(135deg, #3d3d3d 0%, #2d2d2d 100%);
+    border-color: #444;
+  }
+
+  .permission-detail {
+    background: #1e1e1e;
+  }
+
+  .permission-detail .old-content,
+  .permission-detail .new-content {
+    background: #2d2d2d;
+    border-color: #444;
+  }
+
+  .permission-detail .old-content code,
+  .permission-detail .new-content code {
+    color: #e0e0e0;
+  }
+
+  .permission-actions {
+    background: #252525;
+    border-color: #444;
   }
 }

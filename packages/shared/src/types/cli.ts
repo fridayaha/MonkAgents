@@ -225,4 +225,6 @@ export interface CliExecutionResult {
   costUsd?: number;
   /** 执行摘要 - 由智能体生成，包含文件变更、产出、建议等 */
   executionSummary?: import('./execution-summary').ExecutionSummary;
+  /** 权限拒绝记录 - 需要用户确认的工具调用 */
+  permissionDenials?: import('./permission').PermissionDenial[];
 }

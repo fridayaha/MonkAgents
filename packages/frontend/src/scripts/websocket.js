@@ -60,6 +60,11 @@ class WebSocketClient {
     this.socket.on('session_history', (data) => {
       this.emit('session_history', data);
     });
+
+    // Handle permission request
+    this.socket.on('permission_request', (data) => {
+      this.emit('permission_request', data);
+    });
   }
 
   disconnect() {
@@ -103,6 +108,24 @@ class WebSocketClient {
   cancelTask(taskId) {
     if (this.socket && this.connected) {
       this.socket.emit('cancel', taskId);
+    }
+  }
+
+  /**
+   * Send permission response to server
+   * @param {string} requestId - The permission request ID
+   * @param {string} action - 'allow' or 'deny'
+   * @param {boolean} remember - Whether to remember this decision
+   * @param {string} reason - Optional reason for denial
+   */
+  sendPermissionResponse(requestId, action, remember = false, reason = null) {
+    if (this.socket && this.connected) {
+      this.socket.emit('permission_response', {
+        requestId,
+        action,
+        remember,
+        reason
+      });
     }
   }
 

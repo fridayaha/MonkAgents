@@ -2,8 +2,8 @@ import { AgentConfig, AgentStatus, CliExecutionResult, ExecutionSummary, TaskCon
 
 export interface AgentExecutionContext {
   sessionId: string;
-  taskId: string;
-  subtaskId: string;
+  taskId?: string;  // 可选，闲聊模式不需要
+  subtaskId?: string;  // 可选，闲聊模式不需要
   workingDirectory: string;
   prompt: string;
   sessionWorkingDirectory?: string;

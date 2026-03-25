@@ -16,6 +16,7 @@ import { TasksService } from '../tasks/tasks.service';
 import { TaskPlanner } from '../agents/task-planner';
 import { AgentsService } from '../agents/agents.service';
 import { SessionService } from '../session/session.service';
+import { PermissionResponseEvent } from '@monkagents/shared';
 
 @WsGateway({
   cors: {
@@ -119,6 +120,14 @@ export class WebSocketGateway
     @MessageBody() taskId: string,
   ): Promise<void> {
     await this.webSocketService.cancelTask(taskId);
+  }
+
+  @SubscribeMessage('permission_response')
+  async handlePermissionResponse(
+    @ConnectedSocket() _client: Socket,
+    @MessageBody() data: PermissionResponseEvent,
+  ): Promise<void> {
+    await this.webSocketService.handlePermissionResponse(data);
   }
 
   @SubscribeMessage('ping')

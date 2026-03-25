@@ -45,6 +45,15 @@ export interface ExecutionPromptConfig {
 }
 
 /**
+ * 智能体权限配置（简化版，用于YAML配置）
+ * 详细的权限类型定义见 permission.ts
+ */
+export interface AgentPermissionYaml {
+  /** 自动确认的工具列表 */
+  autoApprove?: string[];
+}
+
+/**
  * Agent configuration from YAML
  * 参考: https://code.claude.com/docs/zh-CN/sub-agents
  */
@@ -78,6 +87,8 @@ export interface AgentConfig {
   taskKeywords?: TaskKeywords;
   /** 执行提示配置 */
   executionPrompt?: ExecutionPromptConfig;
+  /** 权限配置 */
+  permissions?: AgentPermissionYaml;
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   AgentConfig,
   CliExecutionResult,
   CliOutputEvent,
+  PermissionDenial,
 } from '@monkagents/shared';
 import { CliOutputParser } from '../../cli/cli.parser';
 
@@ -30,6 +31,14 @@ export const DEFAULT_CLI_EXECUTION_CONFIG: CliExecutionConfig = {
 };
 
 /**
+ * Options for CLI execution
+ */
+export interface CliExecutionOptions {
+  /** Tools to auto-approve */
+  allowedTools?: string[];
+}
+
+/**
  * Helper class to manage CLI process execution
  */
 export class CliExecutor {
@@ -38,6 +47,7 @@ export class CliExecutor {
   private parser: CliOutputParser;
   private isShuttingDown: boolean = false;
   private retryCount: number = 0;
+  private currentOptions: CliExecutionOptions = {};
 
   // Activity tracking
   private lastActivity: number = Date.now();
@@ -51,11 +61,24 @@ export class CliExecutor {
     this.parser = new CliOutputParser();
   }
 
+  /**
+   * Set allowed tools for next execution
+   */
+  setAllowedTools(tools: string[]): void {
+    this.currentOptions.allowedTools = tools;
+  }
+
   async execute(
     fullPrompt: string,
     workingDirectory: string,
     onEvent: (event: CliOutputEvent) => void,
+    options?: CliExecutionOptions,
   ): Promise<CliExecutionResult> {
+    // Merge options
+    if (options) {
+      this.currentOptions = { ...this.currentOptions, ...options };
+    }
+
     // Resolve working directory to absolute path
     let effectiveWorkingDir = workingDirectory;
     if (!path.isAbsolute(effectiveWorkingDir)) {
@@ -103,6 +126,8 @@ export class CliExecutor {
 
     const args = this.buildCliArgs();
 
+    this.logger.debug(`CLI args: ${args.join(' ')}`);
+
     // Prepare environment - remove CLAUDECODE vars to allow nested execution
     const env: Record<string, string> = {};
     Object.keys(process.env).forEach(key => {
@@ -127,6 +152,7 @@ export class CliExecutor {
     let output = '';
     let error = '';
     let sessionIdFromCli: string | undefined;
+    let permissionDenials: PermissionDenial[] = [];
 
     // Handle stdout - updates activity and parses events
     this.currentProcess.stdout?.on('data', (data: Buffer) => {
@@ -154,7 +180,10 @@ export class CliExecutor {
 
     // Handle process close
     this.currentProcess.on('close', (code: number) => {
-      this.handleProcessClose(code, output, error, sessionIdFromCli, resolve, reject, fullPrompt, effectiveWorkingDir, onEvent);
+      this.handleProcessClose(
+        code, output, error, sessionIdFromCli, permissionDenials,
+        resolve, reject, fullPrompt, effectiveWorkingDir, onEvent
+      );
     });
 
     // Handle process error
@@ -168,6 +197,7 @@ export class CliExecutor {
     output: string,
     error: string,
     sessionIdFromCli: string | undefined,
+    permissionDenials: PermissionDenial[],
     resolve: (value: CliExecutionResult) => void,
     reject: (reason: any) => void,
     fullPrompt: string,
@@ -196,11 +226,15 @@ export class CliExecutor {
       }
     }
 
+    // Parse permission_denials from output
+    permissionDenials = this.parsePermissionDenials(output);
+
     const result: CliExecutionResult = {
       success: code === 0,
       sessionId: sessionIdFromCli,
       output,
       error: code !== 0 ? error || `Process exited with code ${code}` : undefined,
+      permissionDenials,
     };
 
     if (code === 0) {
@@ -216,9 +250,43 @@ export class CliExecutor {
         }, 1000); // 1 second delay before retry
       } else {
         this.parser.reset();
-        reject(new Error(result.error));
+        // Return result with permission denials instead of rejecting
+        resolve(result);
       }
     }
+  }
+
+  /**
+   * Parse permission_denials from CLI output
+   */
+  private parsePermissionDenials(output: string): PermissionDenial[] {
+    const denials: PermissionDenial[] = [];
+
+    try {
+      // Look for permission_denials in the result message
+      const lines = output.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        try {
+          const msg = JSON.parse(trimmed);
+          if (msg.type === 'result' && msg.permission_denials) {
+            denials.push(...msg.permission_denials);
+          }
+        } catch {
+          // Not a JSON line, skip
+        }
+      }
+    } catch (e) {
+      this.logger.debug(`Error parsing permission denials: ${e}`);
+    }
+
+    if (denials.length > 0) {
+      this.logger.log(`Found ${denials.length} permission denials`);
+    }
+
+    return denials;
   }
 
   private handleProcessError(err: Error, reject: (reason: any) => void): void {
@@ -309,6 +377,11 @@ export class CliExecutor {
     // Add tools configuration
     if (this.config.disallowedTools && this.config.disallowedTools.length > 0) {
       baseArgs.push('--disallowedTools', this.config.disallowedTools.join(','));
+    }
+
+    // Add allowed tools for auto-approval
+    if (this.currentOptions.allowedTools && this.currentOptions.allowedTools.length > 0) {
+      baseArgs.push('--allowedTools', this.currentOptions.allowedTools.join(','));
     }
 
     // Note: Prompt will be sent via stdin, not as argument
