@@ -194,6 +194,7 @@ export class TasksService {
 
   /**
    * Update a subtask
+   * 注意：不允许更新 taskId，防止意外设置为 null
    */
   async updateSubtask(id: string, dto: UpdateSubtaskDto): Promise<Subtask> {
     const subtask = await this.subtaskRepository.findOne({
@@ -203,6 +204,9 @@ export class TasksService {
     if (!subtask) {
       throw new NotFoundException(`Subtask not found: ${id}`);
     }
+
+    // 保存原始 taskId，防止被意外覆盖
+    const originalTaskId = subtask.taskId;
 
     if (dto.status !== undefined) {
       subtask.status = dto.status;
@@ -225,6 +229,12 @@ export class TasksService {
 
     if (dto.handoffCount !== undefined) {
       subtask.handoffCount = dto.handoffCount;
+    }
+
+    // 确保 taskId 不会被意外修改
+    if (subtask.taskId !== originalTaskId) {
+      this.logger.warn(`Subtask ${id} taskId was unexpectedly modified, restoring to ${originalTaskId}`);
+      subtask.taskId = originalTaskId;
     }
 
     return this.subtaskRepository.save(subtask);

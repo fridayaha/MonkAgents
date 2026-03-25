@@ -51,6 +51,8 @@ cli:
     - stream-json
     - --include-partial-messages
     - --verbose
+    - --thinking
+    - enabled
 
 # 允许使用的工具
 tools:
@@ -123,3 +125,19 @@ boundaries:
 
 permissionMode: acceptEdits
 maxTurns: 30
+
+# 权限配置
+permissions:
+  # 自动确认的工具（无需用户确认）
+  autoApprove:
+    - Read          # 读取文件
+    - Edit          # 编辑文件
+    - Write         # 创建文件
+    - Glob          # 查找文件
+    - Grep          # 搜索内容
+    - Bash(git *)   # Git命令
+    - Bash(npm *)   # NPM命令
+    - Bash(node *)  # Node命令
+    - Bash(ls *)    # 列出文件
+    - Bash(cat *)   # 查看文件
+    - Bash(pwd)     # 当前目录

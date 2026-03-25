@@ -9,7 +9,7 @@ import {
   HandoffRequest,
 } from '@monkagents/shared';
 import { ConfigService } from '../config/config.service';
-import { TaskPlanner, TaskPlanResult, DecompositionResult } from './task-planner';
+import { TaskPlanner, TaskPlanResult } from './task-planner';
 import { TasksService } from '../tasks/tasks.service';
 import { WebSocketService } from '../websocket/websocket.service';
 import { SessionService } from '../session/session.service';
@@ -132,27 +132,78 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
 
   /**
    * Handle chat mode - agents respond freely without task assignment
+   * 唐僧决定谁来回答，支持单个或多个智能体流式回复
    */
   private async handleChatMode(
     sessionId: string,
-    _userPrompt: string,
+    userPrompt: string,
     planResult: TaskPlanResult,
   ): Promise<null> {
     this.logger.log('闲聊模式: 智能体自由发挥');
 
-    // Broadcast Tangseng's analysis
-    this.wsService!.broadcastMessage(sessionId, {
-      id: `msg-${Date.now()}-tangseng`,
-      sessionId,
-      sender: 'agent',
-      senderId: 'tangseng',
-      senderName: '唐僧',
-      type: 'text',
-      content: `阿弥陀佛，贫僧看施主似乎并无具体任务...${planResult.analysis}`,
-      createdAt: new Date(),
-    });
+    // 获取唐僧决定的响应者列表
+    const responders = planResult.chatResponders || [];
 
-    // Broadcast chat complete - let frontend know we're done
+    // 如果没有响应者，默认唐僧自己回答
+    if (responders.length === 0) {
+      responders.push({
+        agentRole: 'tangseng',
+        reason: '默认由贫僧来回应',
+        topic: planResult.analysis,
+      });
+    }
+
+    this.logger.log(`闲聊响应者: ${responders.map(r => r.agentRole).join(', ')}`);
+
+    // 获取会话工作目录
+    let sessionWorkingDir = process.cwd();
+    if (this.sessionService) {
+      try {
+        const session = await this.sessionService.findOne(sessionId);
+        sessionWorkingDir = session.workingDirectory || process.cwd();
+      } catch (e) {
+        this.logger.warn(`无法获取会话工作目录: ${e}`);
+      }
+    }
+
+    // 按顺序让每个智能体回复
+    for (const responder of responders) {
+      const agentId = responder.agentRole;
+
+      // 广播智能体开始思考
+      this.wsService!.emitAgentStatus(agentId, 'thinking', 'thinking');
+
+      // 获取智能体实例
+      const agent = this.agentsService?.getExecutableAgent(agentId);
+
+      if (!agent) {
+        this.logger.warn(`Agent ${agentId} not found, skipping`);
+        continue;
+      }
+
+      // 构建闲聊回复提示词
+      const chatPrompt = this.buildChatPrompt(userPrompt, responder, planResult.chatTopic);
+
+      // 执行智能体（流式输出）
+      try {
+        const context: AgentExecutionContext = {
+          sessionId,
+          prompt: chatPrompt,
+          workingDirectory: sessionWorkingDir,
+          sessionWorkingDirectory: sessionWorkingDir,
+          taskId: 'chat',
+          subtaskId: `chat-${Date.now()}`,
+        };
+
+        await agent.execute(context);
+      } catch (error) {
+        this.logger.error(`Agent ${agentId} chat response failed: ${error}`);
+      }
+
+      // 智能体执行完成后状态会自动变为 idle
+    }
+
+    // 广播聊天完成
     this.wsService!.broadcastMessage(sessionId, {
       id: `chat-complete-${Date.now()}`,
       sessionId,
@@ -166,6 +217,48 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
 
     this.status = 'idle';
     return null;
+  }
+
+  /**
+   * 构建闲聊回复提示词
+   */
+  private buildChatPrompt(
+    userPrompt: string,
+    responder: { agentRole: string; reason: string; topic?: string },
+    chatTopic?: string,
+  ): string {
+    const parts: string[] = [];
+
+    parts.push(`【闲聊任务】`);
+    parts.push(`用户发来一条消息，请以你的角色风格进行回复。`);
+    parts.push(``);
+
+    parts.push(`【用户消息】`);
+    parts.push(userPrompt);
+    parts.push(``);
+
+    if (chatTopic) {
+      parts.push(`【话题总结】`);
+      parts.push(chatTopic);
+      parts.push(``);
+    }
+
+    parts.push(`【回复指引】`);
+    parts.push(`选择原因: ${responder.reason}`);
+    if (responder.topic) {
+      parts.push(`建议角度: ${responder.topic}`);
+    }
+    parts.push(``);
+
+    parts.push(`【回复要求】`);
+    parts.push(`1. 用你独特的角色风格回复，保持人设一致`);
+    parts.push(`2. 回复要自然、生动，体现你的性格特点`);
+    parts.push(`3. 如果是问候，热情回应即可`);
+    parts.push(`4. 如果是问题，结合你的专长给出有趣或有用的回答`);
+    parts.push(`5. 回复简洁，不要过长（建议2-5句话）`);
+    parts.push(`6. 不要输出 execution_summary，直接回复即可`);
+
+    return parts.join('\n');
   }
 
   /**
@@ -325,7 +418,7 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
     });
 
     // Execute subtasks sequentially with working directory
-    await this.executeSubtasks(sessionId, task.id, { steps, summary: planResult.summary, requiresReview: planResult.needsHelp }, workingDirectory);
+    await this.executeSubtasks(sessionId, task.id, workingDirectory);
 
     // Update task status to completed
     await this.tasksService!.update(task.id, {
@@ -398,7 +491,6 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
   private async executeSubtasks(
     sessionId: string,
     taskId: string,
-    _plan: DecompositionResult,
     sessionWorkingDir: string,
   ): Promise<void> {
     if (!this.agentsService) {
@@ -523,34 +615,54 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
         const suggestion = SummaryParser.getFirstHandoffSuggestion(result.executionSummary);
 
         if (suggestion && result.success) {
-          // 有 handoff 建议
-          this.logger.log(`🔄 智能体 ${agentName} 请求 handoff 到 ${suggestion.targetAgent}`);
+          // 检查 handoff 目标是否有效（不能 handoff 到 tangseng）
+          if (suggestion.targetAgent === 'tangseng') {
+            this.logger.warn(`⚠️ 智能体 ${agentName} 尝试 handoff 到 tangseng，这是不允许的`);
+            this.logger.log(`将忽略此 handoff 请求，任务已完成`);
 
-          pendingHandoff = {
-            targetAgentId: suggestion.targetAgent,
-            targetAgentName: AGENT_NAMES[suggestion.targetAgent],
-            task: suggestion.task,
-            reason: suggestion.reason,
-            handoffCount: (handoffCounts.get(suggestion.targetAgent) || 0) + 1,
-            sourceAgentId: agentId,
-            sourceAgentName: agentName,
-            executionSummary: result.executionSummary,
-          };
+            // 广播提示消息
+            this.wsService!.broadcastMessage(sessionId, {
+              id: `handoff-rejected-${Date.now()}`,
+              sessionId,
+              sender: 'system',
+              senderId: 'system',
+              senderName: '系统',
+              type: 'text',
+              content: `⚠️ ${agentName} 尝试将任务交还给唐僧，但唐僧是协调者不执行具体任务。任务已标记为完成。`,
+              createdAt: new Date(),
+            });
 
-          // 更新 handoff 计数
-          handoffCounts.set(suggestion.targetAgent, (handoffCounts.get(suggestion.targetAgent) || 0) + 1);
+            pendingHandoff = null;
+          } else {
+            // 有效的 handoff 目标
+            this.logger.log(`🔄 智能体 ${agentName} 请求 handoff 到 ${suggestion.targetAgent}`);
 
-          // 广播 handoff 消息
-          this.wsService!.broadcastMessage(sessionId, {
-            id: `handoff-${Date.now()}`,
-            sessionId,
-            sender: 'system',
-            senderId: 'system',
-            senderName: '系统',
-            type: 'text',
-            content: `🔄 任务交接: ${agentName} → ${AGENT_NAMES[suggestion.targetAgent]}\n原因: ${suggestion.reason}`,
-            createdAt: new Date(),
-          });
+            pendingHandoff = {
+              targetAgentId: suggestion.targetAgent,
+              targetAgentName: AGENT_NAMES[suggestion.targetAgent],
+              task: suggestion.task,
+              reason: suggestion.reason,
+              handoffCount: (handoffCounts.get(suggestion.targetAgent) || 0) + 1,
+              sourceAgentId: agentId,
+              sourceAgentName: agentName,
+              executionSummary: result.executionSummary,
+            };
+
+            // 更新 handoff 计数
+            handoffCounts.set(suggestion.targetAgent, (handoffCounts.get(suggestion.targetAgent) || 0) + 1);
+
+            // 广播 handoff 消息
+            this.wsService!.broadcastMessage(sessionId, {
+              id: `handoff-${Date.now()}`,
+              sessionId,
+              sender: 'system',
+              senderId: 'system',
+              senderName: '系统',
+              type: 'text',
+              content: `🔄 任务交接: ${agentName} → ${AGENT_NAMES[suggestion.targetAgent]}\n原因: ${suggestion.reason}`,
+              createdAt: new Date(),
+            });
+          }
         } else {
           // 无 handoff，继续下一个任务
           pendingHandoff = null;

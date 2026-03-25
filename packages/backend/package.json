@@ -8,10 +8,11 @@
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
+    "test": "jest --config jest.json",
+    "test:watch": "jest --watch --config jest.json",
+    "test:cov": "jest --coverage --config jest.json",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:cleanup": "ts-node -r tsconfig-paths/register test/test-cleanup.ts",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {

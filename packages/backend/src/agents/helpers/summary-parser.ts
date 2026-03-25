@@ -1,4 +1,3 @@
-import { Logger } from '@nestjs/common';
 import {
   ExecutionSummary,
   ExecutionStatus,
@@ -14,8 +13,6 @@ import {
  * 从智能体 CLI 输出中解析结构化的执行摘要
  */
 export class SummaryParser {
-  private static readonly logger = new Logger(SummaryParser.name);
-
   /**
    * 从 CLI 输出中解析执行摘要
    */
@@ -32,7 +29,6 @@ export class SummaryParser {
     if (codeBlockMatch) {
       try {
         const json = JSON.parse(codeBlockMatch[1].trim());
-        this.logger.debug(`成功解析 execution_summary`);
         return this.validateAndNormalize(json);
       } catch (e) {
         // JSON 解析失败，继续尝试其他方法
@@ -45,7 +41,6 @@ export class SummaryParser {
       try {
         const json = JSON.parse(jsonBlockMatch[1].trim());
         if (json.status || json.filesChanged || json.outputs || json.suggestions) {
-          this.logger.debug(`成功解析 execution_summary (json块)`);
           return this.validateAndNormalize(json);
         }
       } catch (e) {
@@ -61,7 +56,6 @@ export class SummaryParser {
         try {
           const json = JSON.parse(fullJson);
           if (json.status || json.suggestions || json.outputs) {
-            this.logger.debug(`成功解析 execution_summary (裸JSON)`);
             return this.validateAndNormalize(json);
           }
         } catch (e) {
