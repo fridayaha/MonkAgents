@@ -62,6 +62,14 @@
           <div class="input-wrapper">
             <div class="input-container">
               <textarea id="message-input" placeholder="输入你的问题或任务... 使用 @ 召唤智能体" rows="3"></textarea>
+              <button id="send-btn" class="btn-send" disabled data-tooltip="请输入你的问题">
+                <svg class="send-icon" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 4l-8 8h5v8h6v-8h5z"/>
+                </svg>
+                <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                </svg>
+              </button>
               <!-- @ Mention Menu -->
               <div id="mention-menu" class="mention-menu hidden">
                 <div class="mention-menu-header">选择智能体</div>
@@ -69,9 +77,6 @@
                   <!-- Agent items will be populated here -->
                 </div>
               </div>
-            </div>
-            <div class="input-actions">
-              <button id="send-btn" class="btn btn-primary">发送</button>
             </div>
           </div>
         </div>

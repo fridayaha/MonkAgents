@@ -297,7 +297,15 @@ export class WebSocketService implements OnModuleInit {
     }
 
     try {
+      // First, try to cancel the executing agent
+      if (this.tangsengAgent) {
+        this.tangsengAgent.cancelTask(taskId);
+      }
+
+      // Update task status in database
       const task = await this.tasksService.cancel(taskId);
+
+      // Broadcast cancellation status
       this.emitTaskStatus(taskId, task.status, '任务已取消');
     } catch (error) {
       this.logger.error(`Error cancelling task: ${error}`);

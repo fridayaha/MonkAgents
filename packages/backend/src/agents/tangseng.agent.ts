@@ -46,6 +46,11 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
   // wsService is inherited from ExecutableAgentBase (protected)
   private agentsService: any = null;
 
+  // Track currently executing agent for each task (for cancellation support)
+  private executingAgents: Map<string, { agentId: string; agent: any }> = new Map();
+  // Track cancelled tasks
+  private cancelledTasks: Set<string> = new Set();
+
   constructor(private readonly configService: ConfigService) {
     super({} as AgentConfig);
   }
@@ -409,6 +414,14 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
 
     // 执行循环
     while (currentRound < MAX_EXECUTION_ROUNDS) {
+      // 检查任务是否被取消
+      if (this.cancelledTasks.has(taskId)) {
+        this.logger.log(`⚠️ 任务 ${taskId} 已被取消，停止执行`);
+        this.cancelledTasks.delete(taskId);
+        this.executingAgents.delete(taskId);
+        return;
+      }
+
       currentRound++;
       this.logger.log(`📍 执行轮次: ${currentRound}/${MAX_EXECUTION_ROUNDS}`);
 
@@ -486,9 +499,15 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
 
       this.logger.log(`🚀 启动智能体: ${agentName} | 任务: ${nextSubtask.description.substring(0, 50)}...`);
 
+      // Track the executing agent for cancellation support
+      this.executingAgents.set(taskId, { agentId, agent });
+
       try {
         // 执行智能体
         const result = await agent.execute(context);
+
+        // Remove from tracking after execution
+        this.executingAgents.delete(taskId);
 
         // 更新子任务状态
         await this.tasksService!.updateSubtask(nextSubtask.id, {
@@ -548,6 +567,9 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
       } catch (error) {
         this.logger.error(`Agent ${agentId} execution failed: ${error}`);
 
+        // Remove from tracking on error
+        this.executingAgents.delete(taskId);
+
         // 更新子任务状态为失败
         await this.tasksService!.updateSubtask(nextSubtask.id, {
           status: 'failed',
@@ -584,6 +606,29 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
         createdAt: new Date(),
       });
     }
+  }
+
+  /**
+   * Cancel a running task
+   * Stops the currently executing agent if any
+   */
+  cancelTask(taskId: string): boolean {
+    // Mark task as cancelled (for execution loop check)
+    this.cancelledTasks.add(taskId);
+
+    const executingInfo = this.executingAgents.get(taskId);
+    if (executingInfo) {
+      this.logger.log(`Cancelling task ${taskId}, stopping agent ${executingInfo.agentId}`);
+      try {
+        executingInfo.agent.cancel();
+      } catch (error) {
+        this.logger.error(`Error cancelling agent: ${error}`);
+      }
+      this.executingAgents.delete(taskId);
+      return true;
+    }
+    this.logger.log(`No executing agent found for task ${taskId}, marked for cancellation`);
+    return false;
   }
 
   /**

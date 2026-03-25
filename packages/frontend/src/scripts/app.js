@@ -24,6 +24,11 @@ class App {
     this.loadingAnimationInterval = null;
     this.loadingAgentId = null;
 
+    // Generation state
+    this.isGenerating = false;
+    this.currentTaskId = null;
+    this.isCancelled = false;  // Track if current task was cancelled
+
     this.init();
   }
 
@@ -36,6 +41,8 @@ class App {
     this.initWebSocket();
     this.initMentionMenu();
     this.autoSelectRecentSession();
+    // Initialize send button state
+    this.updateSendButtonState();
   }
 
   // ==================== Navigation ====================
@@ -110,6 +117,11 @@ class App {
         e.preventDefault();
         this.sendMessage();
       }
+    });
+
+    // Update send button state based on input content
+    document.getElementById('message-input').addEventListener('input', () => {
+      this.updateSendButtonState();
     });
 
     // Close modals on outside click
@@ -573,6 +585,12 @@ class App {
   // ==================== Messaging ====================
 
   sendMessage() {
+    // If generating, stop instead
+    if (this.isGenerating) {
+      this.stopGeneration();
+      return;
+    }
+
     const input = document.getElementById('message-input');
     const content = input.value.trim();
 
@@ -588,6 +606,15 @@ class App {
     // Clear input
     input.value = '';
 
+    // Update button state (will be disabled since input is empty)
+    this.updateSendButtonState();
+
+    // Reset cancelled state for new task
+    this.isCancelled = false;
+
+    // Set generating state
+    this.setGeneratingState(true);
+
     // Show loading indicator before sending
     this.showLoadingIndicator();
 
@@ -596,6 +623,65 @@ class App {
 
     // Note: Don't add message to UI here - wait for server confirmation
     // to ensure it's saved to history
+  }
+
+  /**
+   * Stop generation - cancel current task
+   */
+  stopGeneration() {
+    if (!this.isGenerating) return;
+
+    // Mark as cancelled FIRST to stop processing stream messages
+    this.isCancelled = true;
+
+    if (this.currentTaskId) {
+      console.log('Cancelling task:', this.currentTaskId);
+      wsClient.cancelTask(this.currentTaskId);
+    }
+
+    // Reset state immediately (don't use setGeneratingState as it resets isCancelled)
+    this.isGenerating = false;
+    this.updateSendButtonState();
+    this.hideLoadingIndicator();
+    this.currentTaskId = null;
+  }
+
+  /**
+   * Set generating state and update UI
+   */
+  setGeneratingState(isGenerating) {
+    this.isGenerating = isGenerating;
+    this.updateSendButtonState();
+
+    // Reset cancelled state when generation completes
+    if (!isGenerating) {
+      this.isCancelled = false;
+    }
+  }
+
+  /**
+   * Update send button state based on input content and generation state
+   */
+  updateSendButtonState() {
+    const sendBtn = document.getElementById('send-btn');
+    const input = document.getElementById('message-input');
+
+    if (!sendBtn) return;
+
+    if (this.isGenerating) {
+      // Generating: show stop button (enabled)
+      sendBtn.classList.add('is-generating');
+      sendBtn.disabled = false;
+      sendBtn.dataset.tooltip = '停止生成';
+    } else {
+      // Not generating: show send button
+      sendBtn.classList.remove('is-generating');
+
+      // Disable if input is empty
+      const content = input?.value.trim() || '';
+      sendBtn.disabled = content.length === 0;
+      sendBtn.dataset.tooltip = content.length === 0 ? '请输入你的问题' : '发送';
+    }
   }
 
   // Loading indicator with animated dots
@@ -649,6 +735,11 @@ class App {
 
   addMessage(message) {
     if (!this.currentSession) return;
+
+    // Ignore agent messages if task was cancelled (but allow user/system messages)
+    if (this.isCancelled && message.sender === 'agent' && message.type !== 'error') {
+      return;
+    }
 
     if (!this.currentSession.messages) {
       this.currentSession.messages = [];
@@ -1034,12 +1125,22 @@ class App {
       if (message.type === 'chat_complete') {
         this.finalizeStreamingMessages();
         this.removeLastStatusMessage();
+        this.setGeneratingState(false);
+        this.currentTaskId = null;
         return;
       }
+
+      // Ignore agent messages if cancelled
+      if (this.isCancelled && message.sender === 'agent') {
+        return;
+      }
+
       this.addMessage(message);
     });
 
     wsClient.on('agent_status', ({ agentId, status, action }) => {
+      // Ignore agent status if cancelled
+      if (this.isCancelled) return;
       this.updateAgentStatus(agentId, status, action);
     });
 
@@ -1048,6 +1149,8 @@ class App {
     });
 
     wsClient.on('stream', (chunk) => {
+      // Ignore stream if cancelled
+      if (this.isCancelled) return;
       this.handleStreamChunk(chunk);
     });
 
@@ -1106,6 +1209,11 @@ class App {
   }
 
   updateTaskStatus(taskId, status, message) {
+    // Track current task ID
+    if (status === 'thinking' || status === 'executing') {
+      this.currentTaskId = taskId;
+    }
+
     // Update task card on tasks page
     const taskCard = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
     if (taskCard) {
@@ -1122,14 +1230,21 @@ class App {
       task.status = status;
     }
 
-    // If task completed, remove loading status message
+    // If task completed, failed, or cancelled, reset generating state
     if (status === 'completed' || status === 'failed') {
+      this.setGeneratingState(false);
+      this.currentTaskId = null;
       this.removeLastStatusMessage();
       // 任务完成不再显示系统提示消息
     }
   }
 
   handleStreamChunk(chunk) {
+    // Ignore stream chunks if task was cancelled
+    if (this.isCancelled) {
+      return;
+    }
+
     // Handle streaming output
     if (chunk.eventType === 'text' && chunk.content) {
       // Find existing streaming message or create new one
