@@ -1,4 +1,4 @@
-# MonkAgents 🧘
+# MonkAgents
 
 基于西游记角色的多智能体协同平台。
 
@@ -10,11 +10,11 @@ MonkAgents 是一个创新的多智能体协作平台，采用中国古典名著
 
 | 角色 | 名称 | 职责 | 特点 |
 |------|------|------|------|
-| 🧘 唐僧 | Master | 团队领导者 | 深思熟虑，善于分析和协调，负责任务分解 |
-| 🐵 孙悟空 | Executor | 主要执行者 | 技术能力强，反应迅速，负责编码实现 |
-| 🐷 猪八戒 | Assistant | 助手 | 乐于助人，处理文档编写、格式整理等辅助任务 |
-| 🧔 沙和尚 | Inspector | 检查者 | 细心认真，负责代码审查、测试验证、质量保证 |
-| 🙏 如来佛祖 | Advisor | 资深顾问 | 经验丰富，提供架构设计和战略指导 |
+| 唐僧 | Master | 团队领导者 | 深思熟虑，善于分析和协调，负责任务分解 |
+| 孙悟空 | Executor | 主要执行者 | 技术能力强，反应迅速，负责编码实现 |
+| 猪八戒 | Assistant | 助手 | 乐于助人，处理文档编写、格式整理等辅助任务 |
+| 沙和尚 | Inspector | 检查者 | 细心认真，负责代码审查、测试验证、质量保证 |
+| 如来佛祖 | Advisor | 资深顾问 | 经验丰富，提供架构设计和战略指导 |
 
 ## 系统界面
 
@@ -39,15 +39,39 @@ MonkAgents 是一个创新的多智能体协作平台，采用中国古典名著
 
 ## 功能特性
 
-- 🤖 **多智能体协作** - 五个智能体各司其职，协同工作
-- 🎭 **人设驱动** - 每个智能体拥有独特人设，回复风格鲜明
-- 📝 **配置化架构** - 人设、任务匹配、执行提示完全由 YAML 配置驱动
-- 💬 **实时通信** - WebSocket 支持实时消息推送和流式输出
-- 📝 **会话管理** - 支持多会话、工作目录配置
-- 🗄️ **数据持久化** - MySQL 数据库 + Redis 缓存
-- 🔧 **目录浏览** - 前端可选择服务器端工作目录
-- ⚙️ **灵活配置** - YAML 格式的系统和智能体配置
-- 🎨 **现代前端** - 三栏式响应式界面
+### 核心能力
+
+- **多智能体协作** - 五个智能体各司其职，协同工作
+- **人设驱动** - 每个智能体拥有独特人设，回复风格鲜明
+- **配置化架构** - 人设、任务匹配、执行提示完全由 YAML 配置驱动
+- **实时通信** - WebSocket 支持实时消息推送和流式输出
+
+### 协作机制
+
+- **智能任务规划** - 唐僧智能体自动分析需求、分解任务、分配执行者
+- **Handoff 机制** - 智能体之间可交接任务，传递上下文和执行摘要
+- **上下文传递** - 执行摘要自动注入到后续任务的提示词中
+- **轮次控制** - 最大执行轮次限制，防止无限循环
+
+### 权限与安全
+
+- **工具执行权限确认** - 敏感工具使用前弹窗请求用户授权
+- **风险等级评估** - 自动评估工具风险等级（低/中/高）
+- **记住决定** - 可选择记住授权决定，避免重复确认
+- **权限持久化** - 授权决定保存到 Redis，跨会话生效
+
+### 数据管理
+
+- **会话管理** - 支持多会话、工作目录配置
+- **数据持久化** - MySQL 数据库 + Redis 缓存
+- **对话历史** - 完整的对话记录持久化存储
+- **目录浏览** - 前端可选择服务器端工作目录
+
+### 开发体验
+
+- **流式输出** - 打字机效果的实时输出显示
+- **服务管理脚本** - 一键启动/停止/重启服务
+- **灵活配置** - YAML 格式的系统和智能体配置
 
 ## 快速开始
 
@@ -56,7 +80,7 @@ MonkAgents 是一个创新的多智能体协作平台，采用中国古典名著
 - Node.js >= 18.0.0
 - npm >= 9.0.0
 - MySQL >= 8.0
-- Redis >= 6.0 (可选，用于对话历史持久化)
+- Redis >= 6.0 (可选，用于对话历史持久化和权限记忆)
 - Claude CLI (用于实际智能体执行)
 
 ### 安装
@@ -174,6 +198,9 @@ MonkAgents/
 │   │       │   ├── agent-registry.service.ts # 智能体注册表
 │   │       │   ├── agents.service.ts        # 智能体服务
 │   │       │   ├── task-planner.ts          # 任务规划器
+│   │       │   ├── permission.service.ts    # 权限服务
+│   │       │   ├── helpers/                 # 辅助工具
+│   │       │   │   └── summary-parser.ts    # 摘要解析器
 │   │       │   ├── tangseng.agent.ts        # 唐僧智能体 (协调者)
 │   │       │   ├── wukong.agent.ts          # 孙悟空智能体 (执行者)
 │   │       │   ├── bajie.agent.ts           # 猪八戒智能体 (助手)
@@ -241,6 +268,7 @@ MonkAgents/
 | `leave` | sessionId | 离开会话房间 |
 | `message` | { sessionId, content } | 发送消息 |
 | `cancel` | taskId | 取消任务 |
+| `permission_response` | { requestId, action, remember } | 权限确认响应 |
 | `ping` | - | 心跳检测 |
 
 **服务端 → 客户端:**
@@ -254,6 +282,7 @@ MonkAgents/
 | `agent_status` | { agentId, status, action } | 智能体状态更新 |
 | `task_status` | { taskId, status, message } | 任务状态更新 |
 | `stream` | StreamChunk | 流式输出块 (打字机效果) |
+| `permission_request` | PermissionRequest | 工具权限请求 |
 | `error` | { code, message } | 错误通知 |
 | `pong` | { timestamp } | 心跳响应 |
 
@@ -370,6 +399,22 @@ taskKeywords:
   low: ['测试', 'test', '重构', 'refactor']   # 优先级 0.75
   general: ['开发', 'create']                  # 优先级 0.65
 
+# 权限配置
+permissionMode: acceptEdits
+permissions:
+  autoApprove:
+    - Read
+    - Glob
+    - Grep
+    - Edit
+    - Write
+    - Bash(git *)
+    - Bash(npm *)
+
+# 禁用的工具（会尝试使用替代方案）
+disallowedTools:
+  - WebSearch      # 禁用WebSearch，强制使用WebFetch触发权限确认
+
 # 技能
 skills:
   - coding
@@ -382,8 +427,6 @@ boundaries:
   - 不负责文档编写
   - 不负责质量审查
 
-# 权限模式
-permissionMode: acceptEdits
 maxTurns: 50
 ```
 
@@ -396,16 +439,65 @@ maxTurns: 50
 | `taskKeywords` | 任务匹配关键词，按优先级分类 |
 | `cli.args` | CLI 参数配置，`--include-partial-messages` 启用流式输出 |
 | `tools` | 允许使用的工具列表 |
+| `permissions.autoApprove` | 自动授权的工具列表 |
+| `disallowedTools` | 禁用的工具列表 |
 | `boundaries` | 工作边界约束 |
 | `permissionMode` | 权限模式 (acceptEdits, plan, auto) |
 | `maxTurns` | 最大对话轮数 |
+
+## 协作机制详解
+
+### Handoff 任务交接
+
+智能体可以通过 Handoff 机制将任务交接给其他智能体：
+
+```
+唐僧规划 → 悟空执行(生成摘要) → 沙和尚检查
+         ↓                        ↓
+      文件变更检测            有问题? → handoff回悟空
+         ↓                        ↓
+      摘要注入到提示词        悟空修改 → 沙和尚再次检查
+                                  ↓
+                              八戒写文档 → 完成
+```
+
+### 执行摘要
+
+每个智能体执行完任务后会生成执行摘要：
+
+```typescript
+interface ExecutionSummary {
+  status: 'completed' | 'partial' | 'failed';
+  filesChanged: FileChange[];      // 自动收集文件变更
+  outputs: OutputItem[];            // 智能体报告的产出
+  suggestions?: Suggestion[];       // handoff建议
+  issues?: Issue[];                 // 发现的问题
+  duration?: number;                // 执行时长
+}
+```
+
+### 权限确认流程
+
+敏感工具使用前会请求用户授权：
+
+```
+用户请求 → 智能体规划 → 执行工具
+                ↓
+           工具未授权?
+                ↓
+           弹出权限对话框
+                ↓
+        用户允许/拒绝/记住
+                ↓
+           继续执行或返回错误
+```
 
 ## 技术栈
 
 ### 后端
 - **框架**: NestJS 10
 - **数据库**: MySQL + TypeORM
-- **缓存**: Redis (ioredis) - 对话历史持久化
+- **缓存**: Redis (ioredis) - 对话历史持久化、权限记忆
 - **实时通信**: Socket.io
 - **配置管理**: YAML (js-yaml)
 - **日志**: Pino
@@ -425,7 +517,7 @@ maxTurns: 50
 
 ## 开发路线
 
-### 第一阶段 ✅ (已完成)
+### 第一阶段 (已完成)
 - [x] 项目基础架构 (Monorepo)
 - [x] 数据库设计 (MySQL + TypeORM)
 - [x] 配置系统 (YAML)
@@ -435,13 +527,13 @@ maxTurns: 50
 - [x] 前端界面框架
 - [x] 单元测试覆盖
 
-### 第二阶段 ✅ (已完成)
+### 第二阶段 (已完成)
 - [x] CLI 进程管理模块
 - [x] 流式输出解析 (NDJSON)
 - [x] 唐僧智能体实现
 - [x] 任务分解算法
 
-### 第三阶段 ✅ (已完成)
+### 第三阶段 (已完成)
 - [x] 孙悟空智能体实现
 - [x] 猪八戒智能体实现
 - [x] 沙和尚智能体实现
@@ -449,23 +541,29 @@ maxTurns: 50
 - [x] 智能体协作机制
 - [x] @唤醒机制
 
-### 第四阶段 ✅ (已完成)
+### 第四阶段 (已完成)
 - [x] 三栏布局前端
 - [x] 会话管理界面
 - [x] 聊天功能
 - [x] 智能体状态面板
 
-### 第五阶段 ✅ (已完成)
+### 第五阶段 (已完成)
 - [x] CLI 集成与实际调用
 - [x] 人设配置与代码分离
 - [x] 配置驱动的任务匹配
 
-### 第六阶段 ✅ (已完成)
+### 第六阶段 (已完成)
 - [x] Redis 状态管理 (对话历史持久化)
 - [x] 服务管理脚本 (start/stop/status/restart)
 - [x] 流式输出打字机效果
 
-### 第七阶段 (计划中)
+### 第七阶段 (已完成)
+- [x] Handoff 任务交接机制
+- [x] 执行摘要生成与传递
+- [x] 工具执行权限确认
+- [x] 摘要解析器 (SummaryParser)
+
+### 第八阶段 (计划中)
 - [ ] Docker 部署支持
 - [ ] 定时任务调度器
 - [ ] Checkpoint 保存与恢复
@@ -525,6 +623,15 @@ cli:
     - --include-partial-messages  # 关键参数
     - --verbose
 ```
+
+### 权限对话框不出现
+
+检查以下配置：
+
+1. 确认工具在 `disallowedTools` 列表中
+2. 检查 CLI 是否返回 `permission_denials`
+3. 确认 WebSocket 连接正常
+4. 查看后端日志是否有权限请求记录
 
 ## 贡献指南
 
