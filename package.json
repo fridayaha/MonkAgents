@@ -31,6 +31,7 @@
     "@types/node": "^20.11.0",
     "jest": "^29.7.0",
     "puppeteer": "^24.40.0",
+    "sharp": "^0.34.5",
     "ts-jest": "^29.1.1",
     "typescript": "^5.3.3"
   },

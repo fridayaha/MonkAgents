@@ -104,9 +104,20 @@ img {
 .nav-logo {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     font-size: 1.25rem;
     font-weight: 700;
+}
+
+.logo-img {
+    height: 36px;
+    width: auto;
+    border-radius: 8px;
+    transition: transform 0.2s ease;
+}
+
+.nav-logo:hover .logo-img {
+    transform: scale(1.05);
 }
 
 .logo-icon {
@@ -250,7 +261,7 @@ img {
 .hero-badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     padding: 8px 16px;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
@@ -258,6 +269,16 @@ img {
     font-size: 0.85rem;
     color: var(--text-secondary);
     margin-bottom: 24px;
+}
+
+.badge-logo {
+    height: 20px;
+    width: auto;
+    border-radius: 4px;
+}
+
+.badge-icon {
+    font-size: 1rem;
 }
 
 .hero-title {
