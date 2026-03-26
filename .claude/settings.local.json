@@ -21,7 +21,8 @@
       "Bash(git push:*)",
       "WebFetch(domain:dify.ai)",
       "Bash(cd website:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(npx svgo:*)"
     ]
   },
   "bypassPermissions": true

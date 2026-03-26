@@ -62,8 +62,7 @@ tools:
   - Grep
   - Bash
 
-disallowedTools:
-  - WebSearch  # 禁用WebSearch，强制使用WebFetch，从而触发权限确认流程
+disallowedTools: []  # WebSearch 已在代码层面默认禁用
 
 # 技能
 skills:
