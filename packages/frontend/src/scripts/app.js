@@ -8,6 +8,7 @@ import wukongAvatar from '../images/wukong.svg';
 import bajieAvatar from '../images/bajie.svg';
 import shasengAvatar from '../images/shaseng.svg';
 import rulaiAvatar from '../images/rulai.svg';
+import meAvatar from '../images/me.svg';
 
 /**
  * MonkAgents 主应用类
@@ -456,6 +457,10 @@ class App {
     return avatarMap[agentId] || null;
   }
 
+  getUserAvatar() {
+    return meAvatar;
+  }
+
   renderAgents() {
     const container = document.getElementById('agents-list');
     if (!container) return;
@@ -557,7 +562,7 @@ class App {
             <span id="crown-icon" style="display: inline-flex; vertical-align: middle; margin-right: 8px;"></span>
             欢迎使用 MonkAgents
           </h3>
-          <p>唐明皇陛下，选择或创建一个会话开始与智能体协作</p>
+          <p>唐太宗陛下，选择或创建一个会话开始与智能体协作</p>
           <p style="font-size: 0.875rem; color: var(--on-surface-muted); margin-top: 16px;">
             提示：使用 @智能体名称 可以召唤特定智能体<br>
             例如：@孙悟空 写一个函数
@@ -1004,7 +1009,7 @@ class App {
         document.getElementById('messages-container').innerHTML = `
           <div class="welcome-message">
             <h3>👑 欢迎使用 MonkAgents</h3>
-            <p>唐明皇陛下，选择或创建一个会话开始与智能体协作</p>
+            <p>唐太宗陛下，选择或创建一个会话开始与智能体协作</p>
           </div>
         `;
       }
@@ -1077,7 +1082,7 @@ class App {
       id: `temp-user-${Date.now()}`,
       sender: 'user',
       senderId: 'user',
-      senderName: '用户',
+      senderName: '唐太宗（我）',
       content: content,
       type: 'text',
       createdAt: new Date().toISOString(),
@@ -2239,7 +2244,9 @@ class App {
   }
 
   getMessageAvatar(msg) {
-    if (msg.sender === 'user') return '👑';
+    if (msg.sender === 'user') {
+      return `<img src="${this.getUserAvatar()}" alt="唐太宗" class="avatar-img" />`;
+    }
     if (msg.sender === 'system') return '⚙';
 
     // Use SVG avatar for agents

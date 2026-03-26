@@ -181,7 +181,7 @@ export class WebSocketService implements OnModuleInit {
       sessionId,
       sender: 'user',
       senderId: 'user',
-      senderName: '唐明皇',
+      senderName: '唐太宗',
       type: 'text',
       content,
       createdAt: new Date(),
