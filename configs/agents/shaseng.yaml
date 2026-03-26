@@ -64,37 +64,6 @@ disallowedTools:
   - Edit
   - Write
 
-# 任务匹配关键词
-taskKeywords:
-  high:
-    - 审查
-    - review
-    - 代码审查
-    - code review
-    - 检查代码
-  medium:
-    - 测试
-    - test
-    - 验证
-    - verify
-    - 测试覆盖率
-  low:
-    - 安全
-    - security
-    - 漏洞
-    - vulnerability
-    - 审计
-    - audit
-  general:
-    - 质量
-    - quality
-    - 规范
-    - standard
-    - lint
-    - eslint
-    - 检查
-    - check
-
 # 执行提示配置
 executionPrompt:
   additionalInstructions: |

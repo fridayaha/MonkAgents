@@ -74,38 +74,6 @@ disallowedTools:
   - Edit
   - Write
 
-# 任务匹配关键词
-taskKeywords:
-  high:
-    - 架构
-    - architecture
-    - 系统设计
-    - 技术选型
-  medium:
-    - 复杂
-    - complex
-    - 困难
-    - difficult
-    - 难题
-    - 挑战
-    - challenge
-  low:
-    - 建议
-    - advice
-    - 咨询
-    - consult
-    - 指导
-    - guidance
-  general:
-    - 战略
-    - strategy
-    - 规划
-    - planning
-    - 决策
-    - decision
-    - 评估
-    - evaluate
-
 # 执行提示配置
 executionPrompt:
   additionalInstructions: |

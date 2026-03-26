@@ -19,20 +19,6 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'dontAsk' | 'bypassPerm
 export type AgentTool = 'Read' | 'Edit' | 'Write' | 'Glob' | 'Grep' | 'Bash' | 'WebFetch' | 'WebSearch' | 'Agent';
 
 /**
- * Task matching keywords configuration
- */
-export interface TaskKeywords {
-  /** High priority keywords (weight > 0.9) */
-  high?: string[];
-  /** Medium priority keywords (weight ~ 0.8) */
-  medium?: string[];
-  /** Low priority keywords (weight ~ 0.7) */
-  low?: string[];
-  /** General keywords for canHandle check */
-  general?: string[];
-}
-
-/**
  * Execution prompt template configuration
  */
 export interface ExecutionPromptConfig {
@@ -83,8 +69,6 @@ export interface AgentConfig {
   permissionMode?: PermissionMode;
   /** 最大执行轮数 */
   maxTurns?: number;
-  /** 任务匹配关键词配置 */
-  taskKeywords?: TaskKeywords;
   /** 执行提示配置 */
   executionPrompt?: ExecutionPromptConfig;
   /** 权限配置 */

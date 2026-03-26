@@ -22,12 +22,6 @@ const createMockConfigService = () => {
       mcps: [],
       capabilities: ['planning', 'coordination', 'review', 'decision_making'],
       boundaries: ['不直接执行技术任务', '主要负责决策和协调'],
-      taskKeywords: {
-        high: ['帮我', '请帮我', '需要', '想要', '计划', 'plan', '分析', 'analyze'],
-        medium: ['任务', 'task', '分解', 'decompose', '协调', 'coordinate'],
-        low: ['规划', 'planning', '安排', 'schedule', '分配', 'assign'],
-        general: ['帮忙', 'help', '协助', 'assist', '问题', 'problem'],
-      },
     },
     wukong: {
       id: 'wukong',
@@ -41,12 +35,6 @@ const createMockConfigService = () => {
       mcps: [],
       capabilities: ['code', 'debug', 'test', 'refactor'],
       boundaries: [],
-      taskKeywords: {
-        high: ['代码', '实现', '编写', 'code', 'implement', 'write'],
-        medium: ['调试', 'debug', '修复', 'fix', 'bug'],
-        low: ['测试', 'test', '重构', 'refactor'],
-        general: ['开发', 'develop', '创建', 'create'],
-      },
     },
     bajie: {
       id: 'bajie',
@@ -60,12 +48,6 @@ const createMockConfigService = () => {
       mcps: [],
       capabilities: ['document', 'format', 'assist'],
       boundaries: [],
-      taskKeywords: {
-        high: ['文档', 'document', 'doc', 'readme'],
-        medium: ['格式', 'format', '整理', 'organize'],
-        low: ['运行', 'run', '执行', 'execute'],
-        general: ['辅助', 'assist', '帮助', 'help'],
-      },
     },
     shaseng: {
       id: 'shaseng',
@@ -79,12 +61,6 @@ const createMockConfigService = () => {
       mcps: [],
       capabilities: ['review', 'test', 'verify'],
       boundaries: [],
-      taskKeywords: {
-        high: ['审查', 'review', '代码审查'],
-        medium: ['测试', 'test', '验证', 'verify'],
-        low: ['安全', 'security', '漏洞', 'vulnerability'],
-        general: ['质量', 'quality', '检查', 'check'],
-      },
     },
     rulai: {
       id: 'rulai',
@@ -98,12 +74,6 @@ const createMockConfigService = () => {
       mcps: [],
       capabilities: ['advise', 'architect', 'strategize'],
       boundaries: [],
-      taskKeywords: {
-        high: ['架构', 'architecture', '系统设计'],
-        medium: ['复杂', 'complex', '困难', 'difficult'],
-        low: ['建议', 'advice', '咨询', 'consult'],
-        general: ['战略', 'strategy', '规划', 'planning'],
-      },
     },
   };
 
@@ -133,15 +103,6 @@ describe('Agent Implementations', () => {
 
     it('should have master role', () => {
       expect(agent.getConfig().role).toBe('master');
-    });
-
-    it('should identify planning tasks', () => {
-      expect(agent.canHandle('帮我做一个任务')).toBe(true);
-    });
-
-    it('should have priority weight for planning tasks', () => {
-      const weight = agent.getPriorityWeight('帮我规划一下这个项目');
-      expect(weight).toBeGreaterThan(0.9);
     });
 
     it('should create execution plan', async () => {
@@ -191,19 +152,6 @@ describe('Agent Implementations', () => {
       expect(agent.getConfig().skills).toContain('coding');
     });
 
-    it('should identify code-related tasks', () => {
-      expect(agent.canHandle('写一些代码')).toBe(true); // '代码' is a keyword
-      expect(agent.canHandle('debug this issue')).toBe(true);
-      expect(agent.canHandle('fix the bug')).toBe(true);
-      expect(agent.canHandle('make me coffee')).toBe(false);
-    });
-
-    it('should calculate priority weights', () => {
-      expect(agent.getPriorityWeight('实现一个功能')).toBeGreaterThan(0.8);
-      expect(agent.getPriorityWeight('debug issue')).toBeGreaterThan(0.8);
-      expect(agent.getPriorityWeight('hello world')).toBeLessThan(0.6);
-    });
-
     it('should be available initially', () => {
       expect(agent.isAvailable()).toBe(true);
     });
@@ -230,17 +178,6 @@ describe('Agent Implementations', () => {
     it('should have documentation skill', () => {
       expect(agent.getConfig().skills).toContain('documentation');
     });
-
-    it('should identify suitable tasks', () => {
-      expect(agent.canHandle('write documentation')).toBe(true);
-      expect(agent.canHandle('format the code')).toBe(true);
-      expect(agent.canHandle('run npm install')).toBe(true);
-    });
-
-    it('should calculate priority weights', () => {
-      expect(agent.getPriorityWeight('写文档')).toBeGreaterThan(0.8);
-      expect(agent.getPriorityWeight('整理格式')).toBeGreaterThan(0.8);
-    });
   });
 
   describe('ShasengAgent', () => {
@@ -264,18 +201,6 @@ describe('Agent Implementations', () => {
     it('should have code_review skill', () => {
       expect(agent.getConfig().skills).toContain('code_review');
     });
-
-    it('should identify review-related tasks', () => {
-      expect(agent.canHandle('审查代码')).toBe(true);
-      expect(agent.canHandle('code review')).toBe(true);
-      expect(agent.canHandle('运行测试')).toBe(true);
-      expect(agent.canHandle('security check')).toBe(true);
-    });
-
-    it('should calculate priority weights', () => {
-      expect(agent.getPriorityWeight('代码审查')).toBeGreaterThan(0.8);
-      expect(agent.getPriorityWeight('测试验证')).toBeGreaterThan(0.8);
-    });
   });
 
   describe('RulaiAgent', () => {
@@ -298,17 +223,6 @@ describe('Agent Implementations', () => {
 
     it('should use opus model', () => {
       expect(agent.getConfig().model).toContain('opus');
-    });
-
-    it('should identify advisory tasks', () => {
-      expect(agent.canHandle('架构设计')).toBe(true);
-      expect(agent.canHandle('architecture advice')).toBe(true);
-      expect(agent.canHandle('复杂问题')).toBe(true);
-    });
-
-    it('should calculate priority weights', () => {
-      expect(agent.getPriorityWeight('架构设计')).toBeGreaterThan(0.8);  // high keyword
-      expect(agent.getPriorityWeight('建议')).toBeGreaterThan(0.7);      // low keyword
     });
   });
 

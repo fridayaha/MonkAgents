@@ -65,48 +65,6 @@ tools:
 disallowedTools:
   - WebSearch  # 禁用WebSearch，强制使用WebFetch，从而触发权限确认流程
 
-# 任务匹配关键词
-taskKeywords:
-  high:
-    - 代码
-    - 实现
-    - 编写
-    - code
-    - implement
-    - write
-    - function
-    - class
-    - module
-    - component
-  medium:
-    - 调试
-    - debug
-    - 修复
-    - fix
-    - bug
-    - 错误
-    - error
-    - 异常
-    - exception
-  low:
-    - 测试
-    - test
-    - 单元测试
-    - 重构
-    - refactor
-    - 优化
-    - optimize
-  general:
-    - 开发
-    - develop
-    - 创建文件
-    - create file
-    - 修改文件
-    - modify file
-    - api
-    - interface
-    - service
-
 # 技能
 skills:
   - coding

@@ -65,41 +65,6 @@ tools:
 
 disallowedTools: []
 
-# 任务匹配关键词
-taskKeywords:
-  high:
-    - 文档
-    - document
-    - doc
-    - readme
-    - 注释
-    - comment
-  medium:
-    - 格式
-    - format
-    - 整理
-    - organize
-    - 美化
-    - beautify
-  low:
-    - 运行
-    - run
-    - 执行
-    - execute
-    - 构建
-    - build
-    - 安装
-    - install
-  general:
-    - 辅助
-    - assist
-    - 帮助
-    - help
-    - 简单
-    - simple
-    - 文档化
-    - documenting
-
 # 执行提示配置
 executionPrompt:
   additionalInstructions: |

@@ -73,39 +73,6 @@ disallowedTools:
   - Edit
   - Write
 
-# 任务匹配关键词
-taskKeywords:
-  high:
-    - 帮我
-    - 请帮我
-    - 需要
-    - 想要
-    - 计划
-    - plan
-    - 分析
-    - analyze
-  medium:
-    - 任务
-    - task
-    - 分解
-    - decompose
-    - 协调
-    - coordinate
-  low:
-    - 规划
-    - planning
-    - 安排
-    - schedule
-    - 分配
-    - assign
-  general:
-    - 帮忙
-    - help
-    - 协助
-    - assist
-    - 问题
-    - problem
-
 # 执行提示配置
 executionPrompt:
   additionalInstructions: |

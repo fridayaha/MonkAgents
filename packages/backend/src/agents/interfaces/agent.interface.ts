@@ -43,8 +43,6 @@ export interface BaseAgent {
   getName(): string;
   getStatus(): AgentStatus;
   getConfig(): AgentConfig;
-  canHandle(task: string): boolean;
-  getPriorityWeight(task: string): number;
 }
 
 export interface ExecutableAgent extends BaseAgent {

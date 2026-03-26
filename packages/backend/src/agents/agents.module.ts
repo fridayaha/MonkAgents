@@ -9,7 +9,6 @@ import { BajieAgent } from './bajie.agent';
 import { ShasengAgent } from './shaseng.agent';
 import { RulaiAgent } from './rulai.agent';
 import { AgentMentionService } from './agent-mention.service';
-import { AgentCollaborationService } from './agent-collaboration.service';
 import { PermissionService } from './permission.service';
 import { Agent } from '../database/entities/agent.entity';
 import { ConfigModule } from '../config/config.module';
@@ -34,7 +33,6 @@ import { AgentRegistry } from './agent-registry.service';
     ShasengAgent,
     RulaiAgent,
     AgentMentionService,
-    AgentCollaborationService,
     PermissionService,
   ],
   controllers: [AgentsController],
@@ -48,7 +46,6 @@ import { AgentRegistry } from './agent-registry.service';
     ShasengAgent,
     RulaiAgent,
     AgentMentionService,
-    AgentCollaborationService,
     PermissionService,
   ],
 })

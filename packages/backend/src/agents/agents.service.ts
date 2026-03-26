@@ -15,16 +15,6 @@ import { AgentRegistry } from './agent-registry.service';
 import { BaseAgentService } from './base-agent.service';
 import { PermissionService } from './permission.service';
 
-/**
- * 智能体选择结果
- */
-export interface AgentSelectionResult {
-  agentId: string;
-  agentName: string;
-  weight: number;
-  reason: string;
-}
-
 @Injectable()
 export class AgentsService implements OnModuleInit {
   private readonly logger = new Logger(AgentsService.name);
@@ -223,84 +213,6 @@ export class AgentsService implements OnModuleInit {
    */
   getExecutableAgent(agentId: string): ExecutableAgentBase | undefined {
     return this.agentRegistry.getExecutableAgent(agentId) as ExecutableAgentBase;
-  }
-
-  /**
-   * 选择最适合执行任务的智能体
-   */
-  selectBestAgent(task: string): AgentSelectionResult {
-    const taskLower = task.toLowerCase();
-
-    // Use the registry to find best agent
-    const bestAgent = this.agentRegistry.findBestAgent(task);
-    if (bestAgent) {
-      return {
-        agentId: bestAgent.getId(),
-        agentName: bestAgent.getName(),
-        weight: bestAgent.getPriorityWeight(task),
-        reason: this.getAgentReason(bestAgent.getId(), taskLower),
-      };
-    }
-
-    // If no agent can handle the task, default to Wukong
-    return {
-      agentId: 'wukong',
-      agentName: '孙悟空',
-      weight: 0.5,
-      reason: '默认分配给孙悟空处理常规任务',
-    };
-  }
-
-  /**
-   * 获取选择智能体的原因
-   */
-  private getAgentReason(agentId: string, task: string): string {
-    const reasons: Record<string, string> = {
-      tangseng: '唐僧擅长任务规划、团队协调和结果审核',
-      wukong: '孙悟空擅长代码编写、调试和技术任务',
-      bajie: '猪八戒擅长文档编写、格式整理和辅助任务',
-      shaseng: '沙和尚擅长代码审查、测试和质量保证',
-      rulai: '如来佛祖擅长架构设计、技术咨询和复杂问题',
-    };
-
-    // 根据任务特点给出更具体的原因
-    if (agentId === 'wukong') {
-      if (task.includes('代码') || task.includes('实现')) {
-        return '孙悟空最适合代码实现任务';
-      }
-      if (task.includes('debug') || task.includes('修复')) {
-        return '孙悟空最适合调试和问题修复';
-      }
-    }
-
-    if (agentId === 'shaseng') {
-      if (task.includes('审查') || task.includes('review')) {
-        return '沙和尚最适合代码审查任务';
-      }
-      if (task.includes('测试') || task.includes('test')) {
-        return '沙和尚最适合测试验证任务';
-      }
-    }
-
-    if (agentId === 'bajie') {
-      if (task.includes('文档') || task.includes('doc')) {
-        return '猪八戒最适合文档编写任务';
-      }
-      if (task.includes('格式') || task.includes('format')) {
-        return '猪八戒最适合格式整理任务';
-      }
-    }
-
-    if (agentId === 'rulai') {
-      if (task.includes('架构') || task.includes('architecture')) {
-        return '如来佛祖最适合架构设计任务';
-      }
-      if (task.includes('复杂') || task.includes('困难')) {
-        return '如来佛祖最适合处理复杂问题';
-      }
-    }
-
-    return reasons[agentId] || '根据能力匹配分配';
   }
 
   /**

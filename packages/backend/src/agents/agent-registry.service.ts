@@ -94,19 +94,4 @@ export class AgentRegistry {
   getAvailableAgents(): ExecutableAgent[] {
     return this.getExecutableAgents().filter(agent => agent.isAvailable());
   }
-
-  canHandle(task: string): ExecutableAgent[] {
-    return this.getExecutableAgents().filter(agent => agent.canHandle(task));
-  }
-
-  findBestAgent(task: string): ExecutableAgent | undefined {
-    const candidates = this.canHandle(task);
-    if (candidates.length === 0) {
-      return undefined;
-    }
-
-    // Sort by priority weight (highest first)
-    candidates.sort((a, b) => b.getPriorityWeight(task) - a.getPriorityWeight(task));
-    return candidates[0];
-  }
 }

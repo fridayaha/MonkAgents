@@ -57,8 +57,6 @@ describe('AgentsService', () => {
 
   // Mock agent instances
   const mockTangsengAgent = {
-    canHandle: jest.fn().mockReturnValue(true),
-    getPriorityWeight: jest.fn().mockReturnValue(0.5),
     isAvailable: jest.fn().mockReturnValue(true),
     getConfig: jest.fn().mockReturnValue({ ...mockAgentConfig, id: 'tangseng', role: 'master' }),
     getStatus: jest.fn().mockReturnValue('idle'),
@@ -67,8 +65,6 @@ describe('AgentsService', () => {
   };
 
   const mockWukongAgent = {
-    canHandle: jest.fn().mockReturnValue(true),
-    getPriorityWeight: jest.fn().mockReturnValue(0.9),
     isAvailable: jest.fn().mockReturnValue(true),
     getConfig: jest.fn().mockReturnValue(mockAgentConfig),
     getStatus: jest.fn().mockReturnValue('idle'),
@@ -77,8 +73,6 @@ describe('AgentsService', () => {
   };
 
   const mockBajieAgent = {
-    canHandle: jest.fn().mockReturnValue(false),
-    getPriorityWeight: jest.fn().mockReturnValue(0.5),
     isAvailable: jest.fn().mockReturnValue(true),
     getConfig: jest.fn().mockReturnValue({ ...mockAgentConfig, id: 'bajie' }),
     getStatus: jest.fn().mockReturnValue('idle'),
@@ -87,8 +81,6 @@ describe('AgentsService', () => {
   };
 
   const mockShasengAgent = {
-    canHandle: jest.fn().mockReturnValue(false),
-    getPriorityWeight: jest.fn().mockReturnValue(0.5),
     isAvailable: jest.fn().mockReturnValue(true),
     getConfig: jest.fn().mockReturnValue({ ...mockAgentConfig, id: 'shaseng' }),
     getStatus: jest.fn().mockReturnValue('idle'),
@@ -97,8 +89,6 @@ describe('AgentsService', () => {
   };
 
   const mockRulaiAgent = {
-    canHandle: jest.fn().mockReturnValue(false),
-    getPriorityWeight: jest.fn().mockReturnValue(0.3),
     isAvailable: jest.fn().mockReturnValue(true),
     getConfig: jest.fn().mockReturnValue({ ...mockAgentConfig, id: 'rulai' }),
     getStatus: jest.fn().mockReturnValue('idle'),
@@ -108,10 +98,8 @@ describe('AgentsService', () => {
 
   const mockAgentRegistry = {
     getExecutableAgent: jest.fn(),
-    findBestAgent: jest.fn(),
     getAvailableAgents: jest.fn(),
     getExecutableAgents: jest.fn(),
-    canHandle: jest.fn(),
     getAgent: jest.fn(),
     getAllAgents: jest.fn(),
     registerAgent: jest.fn(),
@@ -309,38 +297,6 @@ describe('AgentsService', () => {
       const available = await service.getAvailableAgents();
       expect(available.length).toBe(1);
       expect(available[0].id).toBe('bajie');
-    });
-  });
-
-  describe('selectBestAgent', () => {
-    it('should select the best agent for a task', async () => {
-      mockConfigService.getAllAgentConfigs.mockReturnValue([mockAgentConfig]);
-      mockRepository.findOne.mockResolvedValue(mockAgent);
-
-      await service.onModuleInit();
-
-      // 模拟AgentRegistry找到最佳智能体
-      mockAgentRegistry.findBestAgent.mockReturnValue(mockWukongAgent);
-
-      const result = service.selectBestAgent('写代码实现功能');
-
-      expect(result.agentId).toBe('wukong');
-      expect(result.weight).toBe(0.9); // 来自mockWukongAgent.getPriorityWeight的返回值
-    });
-
-    it('should default to wukong when no agent matches', async () => {
-      mockConfigService.getAllAgentConfigs.mockReturnValue([mockAgentConfig]);
-      mockRepository.findOne.mockResolvedValue(mockAgent);
-
-      await service.onModuleInit();
-
-      // 模拟AgentRegistry找不到最佳智能体
-      mockAgentRegistry.findBestAgent.mockReturnValue(null);
-
-      const result = service.selectBestAgent('随机任务');
-
-      expect(result.agentId).toBe('wukong');
-      expect(result.weight).toBe(0.5);
     });
   });
 
