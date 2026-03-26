@@ -523,6 +523,7 @@ body {
   height: 12px;
   border-radius: var(--radius-full);
   border: 2px solid var(--surface-primary);
+  z-index: 10;
 }
 
 .agent-status-indicator.idle { background-color: var(--status-success); }
