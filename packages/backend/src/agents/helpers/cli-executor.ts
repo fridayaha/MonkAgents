@@ -36,6 +36,8 @@ export const DEFAULT_CLI_EXECUTION_CONFIG: CliExecutionConfig = {
 export interface CliExecutionOptions {
   /** Tools to auto-approve */
   allowedTools?: string[];
+  /** CLI session ID to resume (for context persistence) */
+  cliSessionId?: string;
 }
 
 /**
@@ -66,6 +68,13 @@ export class CliExecutor {
    */
   setAllowedTools(tools: string[]): void {
     this.currentOptions.allowedTools = tools;
+  }
+
+  /**
+   * Set CLI session ID for resuming a previous session
+   */
+  setCliSessionId(cliSessionId: string | undefined): void {
+    this.currentOptions.cliSessionId = cliSessionId;
   }
 
   async execute(
@@ -358,6 +367,12 @@ export class CliExecutor {
   }
 
   /**
+   * Default tools that are disabled globally
+   * WebSearch is disabled because it's not available in China
+   */
+  private static readonly DEFAULT_DISALLOWED_TOOLS = ['WebSearch'];
+
+  /**
    * Build CLI arguments based on configuration
    * Prompt will be sent via stdin
    */
@@ -374,14 +389,26 @@ export class CliExecutor {
       baseArgs.push('--max-turns', String(this.config.maxTurns));
     }
 
-    // Add tools configuration
-    if (this.config.disallowedTools && this.config.disallowedTools.length > 0) {
-      baseArgs.push('--disallowedTools', this.config.disallowedTools.join(','));
+    // Merge default disallowed tools with config-specific ones
+    // Default tools (like WebSearch) are always disabled for all agents
+    const disallowedTools = new Set<string>(CliExecutor.DEFAULT_DISALLOWED_TOOLS);
+    if (this.config.disallowedTools) {
+      this.config.disallowedTools.forEach(tool => disallowedTools.add(tool));
+    }
+
+    // Add disallowed tools configuration
+    if (disallowedTools.size > 0) {
+      baseArgs.push('--disallowedTools', Array.from(disallowedTools).join(','));
     }
 
     // Add allowed tools for auto-approval
     if (this.currentOptions.allowedTools && this.currentOptions.allowedTools.length > 0) {
       baseArgs.push('--allowedTools', this.currentOptions.allowedTools.join(','));
+    }
+
+    // Add --resume for CLI session persistence
+    if (this.currentOptions.cliSessionId) {
+      baseArgs.push('--resume', this.currentOptions.cliSessionId);
     }
 
     // Note: Prompt will be sent via stdin, not as argument

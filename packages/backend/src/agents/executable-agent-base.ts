@@ -14,6 +14,7 @@ import { AgentExecutionContext, AgentExecutionCallbacks, ExecutableAgent } from 
 import { CliExecutor, DEFAULT_CLI_EXECUTION_CONFIG, CliExecutionConfig } from './helpers/cli-executor';
 import { SummaryParser } from './helpers/summary-parser';
 import { PermissionService } from './permission.service';
+import { RedisService } from '../redis/redis.service';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -32,6 +33,7 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   protected status: AgentStatus = 'idle';
   protected wsService: any = null; // Using any to avoid circular dependency issues
   protected permissionService: PermissionService | null = null; // 权限服务
+  protected redisService: RedisService | null = null; // Redis 服务 (用于 CLI session 持久化)
   private cliExecutor?: CliExecutor;  // Make it optional initially
   private executionConfig: CliExecutionConfig;
 
@@ -69,6 +71,13 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
    */
   setPermissionService(service: PermissionService): void {
     this.permissionService = service;
+  }
+
+  /**
+   * Set Redis service (for CLI session persistence)
+   */
+  setRedisService(service: RedisService): void {
+    this.redisService = service;
   }
 
   /**
@@ -311,6 +320,17 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     // 设置允许的工具到 CliExecutor
     this.cliExecutor!.setAllowedTools(allowedTools);
 
+    // ===== 获取已有的 CLI sessionId (用于恢复会话上下文) =====
+    let cliSessionId: string | undefined;
+    if (this.redisService && sessionId) {
+      const savedSessionId = await this.redisService.getCliSession(sessionId, this.config.id);
+      if (savedSessionId) {
+        cliSessionId = savedSessionId;
+        this.logger.debug(`Resuming CLI session: ${cliSessionId}`);
+      }
+    }
+    this.cliExecutor!.setCliSessionId(cliSessionId);
+
     // Start activity-based timeout check
     this.cliExecutor!.startActivityCheck();
 
@@ -376,6 +396,12 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
       // 将摘要附加到结果中
       result.executionSummary = executionSummary;
+
+      // ===== 保存新的 CLI sessionId (用于下次恢复) =====
+      if (result.sessionId && this.redisService && sessionId) {
+        await this.redisService.setCliSession(sessionId, this.config.id, result.sessionId);
+        this.logger.debug(`Saved CLI session: ${result.sessionId}`);
+      }
 
       this.status = 'idle';
       this.cliExecutor!.stopActivityCheck();

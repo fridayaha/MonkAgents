@@ -14,6 +14,7 @@ import { WebSocketService } from '../websocket/websocket.service';
 import { AgentRegistry } from './agent-registry.service';
 import { BaseAgentService } from './base-agent.service';
 import { PermissionService } from './permission.service';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class AgentsService implements OnModuleInit {
@@ -29,6 +30,7 @@ export class AgentsService implements OnModuleInit {
     private readonly shasengAgent: ShasengAgent,
     private readonly rulaiAgent: RulaiAgent,
     private readonly permissionService: PermissionService,
+    private readonly redisService: RedisService,
     @InjectRepository(Agent)
     private readonly agentRepository: Repository<Agent>,
   ) {}
@@ -71,7 +73,14 @@ export class AgentsService implements OnModuleInit {
     this.rulaiAgent.setPermissionService(this.permissionService);
     this.tangsengAgent.setPermissionService(this.permissionService);
 
-    this.logger.log('WebSocket service and Permission service set on all agents');
+    // Set RedisService on all executable agents (for CLI session persistence)
+    this.wukongAgent.setRedisService(this.redisService);
+    this.bajieAgent.setRedisService(this.redisService);
+    this.shasengAgent.setRedisService(this.redisService);
+    this.rulaiAgent.setRedisService(this.redisService);
+    this.tangsengAgent.setRedisService(this.redisService);
+
+    this.logger.log('WebSocket service, Permission service, and Redis service set on all agents');
   }
 
   /**

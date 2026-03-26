@@ -233,4 +233,80 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to delete cache: ${error}`);
     }
   }
+
+  // ===== CLI Session 管理 =====
+
+  /**
+   * Get CLI session key for a websocket session and agent
+   */
+  private getCliSessionKey(sessionId: string, agentId: string): string {
+    return `cli_session:${sessionId}:${agentId}`;
+  }
+
+  /**
+   * Save CLI sessionId for a websocket session and agent
+   * @param sessionId WebSocket session ID
+   * @param agentId Agent ID
+   * @param cliSessionId CLI session ID returned by Claude CLI
+   */
+  async setCliSession(sessionId: string, agentId: string, cliSessionId: string): Promise<void> {
+    if (!this.isAvailable() || !this.client) {
+      return;
+    }
+
+    const key = this.getCliSessionKey(sessionId, agentId);
+
+    try {
+      // Set with 7 days TTL (same as session history)
+      await this.client.setex(key, 7 * 24 * 60 * 60, cliSessionId);
+      this.logger.debug(`CLI session saved: ${key} -> ${cliSessionId}`);
+    } catch (error) {
+      this.logger.error(`Failed to save CLI session: ${error}`);
+    }
+  }
+
+  /**
+   * Get CLI sessionId for a websocket session and agent
+   * @param sessionId WebSocket session ID
+   * @param agentId Agent ID
+   * @returns CLI session ID or null if not found
+   */
+  async getCliSession(sessionId: string, agentId: string): Promise<string | null> {
+    if (!this.isAvailable() || !this.client) {
+      return null;
+    }
+
+    const key = this.getCliSessionKey(sessionId, agentId);
+
+    try {
+      const cliSessionId = await this.client.get(key);
+      if (cliSessionId) {
+        this.logger.debug(`CLI session found: ${key} -> ${cliSessionId}`);
+      }
+      return cliSessionId;
+    } catch (error) {
+      this.logger.error(`Failed to get CLI session: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Delete CLI sessionId for a websocket session and agent
+   * @param sessionId WebSocket session ID
+   * @param agentId Agent ID
+   */
+  async deleteCliSession(sessionId: string, agentId: string): Promise<void> {
+    if (!this.isAvailable() || !this.client) {
+      return;
+    }
+
+    const key = this.getCliSessionKey(sessionId, agentId);
+
+    try {
+      await this.client.del(key);
+      this.logger.debug(`CLI session deleted: ${key}`);
+    } catch (error) {
+      this.logger.error(`Failed to delete CLI session: ${error}`);
+    }
+  }
 }

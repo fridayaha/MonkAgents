@@ -11,6 +11,7 @@ import { ShasengAgent } from './shaseng.agent';
 import { RulaiAgent } from './rulai.agent';
 import { AgentRegistry } from './agent-registry.service';
 import { PermissionService } from './permission.service';
+import { RedisService } from '../redis/redis.service';
 
 describe('AgentsService', () => {
   let service: AgentsService;
@@ -114,6 +115,13 @@ describe('AgentsService', () => {
     createRequestFromDenial: jest.fn(),
   };
 
+  const mockRedisService = {
+    getCliSession: jest.fn().mockResolvedValue(null),
+    setCliSession: jest.fn().mockResolvedValue(undefined),
+    deleteCliSession: jest.fn().mockResolvedValue(undefined),
+    isAvailable: jest.fn().mockReturnValue(true),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -174,6 +182,10 @@ describe('AgentsService', () => {
         {
           provide: PermissionService,
           useValue: mockPermissionService,
+        },
+        {
+          provide: RedisService,
+          useValue: mockRedisService,
         },
       ],
     }).compile();
