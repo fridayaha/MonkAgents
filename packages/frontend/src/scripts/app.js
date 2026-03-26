@@ -2,6 +2,13 @@ import api from './api.js';
 import wsClient from './websocket.js';
 import { icons, getIcon } from './icons.js';
 
+// Import agent avatar SVGs (Vite will handle these as assets)
+import tangsengAvatar from '../images/tangseng.svg';
+import wukongAvatar from '../images/wukong.svg';
+import bajieAvatar from '../images/bajie.svg';
+import shasengAvatar from '../images/shaseng.svg';
+import rulaiAvatar from '../images/rulai.svg';
+
 /**
  * MonkAgents 主应用类
  */
@@ -182,8 +189,7 @@ class App {
   // ==================== Icon Initialization ====================
 
   initIcons() {
-    // Logo
-    this.setIcon('logo-icon', 'logo', 28);
+    // Logo is now an img element, no need to set icon
 
     // Navigation icons
     this.setIcon('nav-icon-chat', 'chat', 18);
@@ -438,6 +444,18 @@ class App {
 
   // ==================== Rendering ====================
 
+  // Agent avatar SVG mapping
+  getAgentAvatar(agentId) {
+    const avatarMap = {
+      tangseng: tangsengAvatar,
+      wukong: wukongAvatar,
+      bajie: bajieAvatar,
+      shaseng: shasengAvatar,
+      rulai: rulaiAvatar
+    };
+    return avatarMap[agentId] || null;
+  }
+
   renderAgents() {
     const container = document.getElementById('agents-list');
     if (!container) return;
@@ -445,11 +463,15 @@ class App {
     container.innerHTML = this.agents.map(agent => {
       const statusClass = this.getStatusClass(agent.status);
       const statusText = this.getStatusText(agent.status);
+      const avatarSrc = this.getAgentAvatar(agent.id);
 
       return `
         <div class="agent-item" data-agent-id="${agent.id}" title="点击召唤 ${agent.config.name}">
           <div class="agent-avatar ${agent.id}">
-            <span>${agent.config.emoji}</span>
+            ${avatarSrc
+              ? `<img src="${avatarSrc}" alt="${agent.config.name}" class="avatar-img" />`
+              : `<span>${agent.config.emoji}</span>`
+            }
             <span class="agent-status-indicator ${statusClass}"></span>
           </div>
           <div class="agent-info">
@@ -2220,8 +2242,16 @@ class App {
     if (msg.sender === 'user') return '👑';
     if (msg.sender === 'system') return '⚙';
 
+    // Use SVG avatar for agents
     const agent = this.agents.find(a => a.id === msg.senderId);
-    return agent?.config?.emoji || '🤖';
+    if (agent) {
+      const avatarSrc = this.getAgentAvatar(msg.senderId);
+      if (avatarSrc) {
+        return `<img src="${avatarSrc}" alt="${agent.config.name}" class="avatar-img" />`;
+      }
+      return agent.config.emoji || '🤖';
+    }
+    return '🤖';
   }
 
   getStatusClass(status) {
