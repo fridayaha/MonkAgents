@@ -2490,15 +2490,23 @@ class App {
     }
 
     // Render menu items
-    mentionList.innerHTML = filteredAgents.map((agent, index) => `
-      <div class="mention-item ${index === 0 ? 'selected' : ''}" data-agent-id="${agent.id}">
-        <span class="mention-item-emoji">${agent.config?.emoji || '🤖'}</span>
-        <div class="mention-item-info">
-          <div class="mention-item-name">${agent.config?.name || agent.id}</div>
-          <div class="mention-item-role">${this.getRoleName(agent.config?.role)}</div>
+    mentionList.innerHTML = filteredAgents.map((agent, index) => {
+      const avatarSrc = this.getAgentAvatar(agent.id);
+      return `
+        <div class="mention-item ${index === 0 ? 'selected' : ''}" data-agent-id="${agent.id}">
+          <span class="mention-item-avatar">
+            ${avatarSrc
+              ? `<img src="${avatarSrc}" alt="${agent.config?.name}" class="avatar-img" />`
+              : agent.config?.emoji || '🤖'
+            }
+          </span>
+          <div class="mention-item-info">
+            <div class="mention-item-name">${agent.config?.name || agent.id}</div>
+            <div class="mention-item-role">${this.getRoleName(agent.config?.role)}</div>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     // Bind click events
     mentionList.querySelectorAll('.mention-item').forEach(item => {
