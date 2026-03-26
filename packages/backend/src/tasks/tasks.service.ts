@@ -158,8 +158,15 @@ export class TasksService {
    * Create a subtask
    */
   async createSubtask(dto: CreateSubtaskDto): Promise<Subtask> {
-    // Verify parent task exists
-    const task = await this.findOne(dto.taskId);
+    // Verify parent task exists (without loading subtasks to avoid cascade issues)
+    const task = await this.taskRepository.findOne({
+      where: { id: dto.taskId },
+      select: ['id', 'assignedAgents'],  // Only select needed fields, no relations
+    });
+
+    if (!task) {
+      throw new NotFoundException(`Task not found: ${dto.taskId}`);
+    }
 
     // Get max order for this task
     const maxOrder = await this.subtaskRepository
@@ -183,10 +190,11 @@ export class TasksService {
 
     const saved = await this.subtaskRepository.save(subtask);
 
-    // Update task's assigned agents
-    if (!task.assignedAgents.includes(dto.agentId)) {
-      task.assignedAgents = [...task.assignedAgents, dto.agentId];
-      await this.taskRepository.save(task);
+    // Update task's assigned agents using update() to avoid cascade save issues
+    if (!task.assignedAgents?.includes(dto.agentId)) {
+      await this.taskRepository.update(dto.taskId, {
+        assignedAgents: [...(task.assignedAgents || []), dto.agentId],
+      });
     }
 
     return saved;

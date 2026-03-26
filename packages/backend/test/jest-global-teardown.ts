@@ -1,6 +1,6 @@
 /**
  * Jest 全局清理 - 在所有测试完成后执行
- * 清理 Redis 和数据库中的测试脏数据
+ * 只清理测试数据库和测试 Redis，确保不影响生产数据
  */
 
 import { Logger } from '@nestjs/common';
@@ -15,8 +15,8 @@ interface TestCleanupConfig {
     host: string;
     port: number;
     password?: string;
-    db?: number;
-    keyPrefix?: string;
+    db: number;
+    keyPrefix: string;
   };
   database: {
     host: string;
@@ -29,8 +29,8 @@ interface TestCleanupConfig {
 
 function loadTestConfig(): TestCleanupConfig {
   const configPaths = [
-    join(process.cwd(), 'configs', 'system.yaml'),
-    join(process.cwd(), '..', '..', 'configs', 'system.yaml'),
+    join(process.cwd(), 'configs', 'system.test.yaml'),
+    join(process.cwd(), '..', '..', 'configs', 'system.test.yaml'),
   ];
 
   let config: any = {};
@@ -48,15 +48,15 @@ function loadTestConfig(): TestCleanupConfig {
       host: config.redis?.host || 'localhost',
       port: config.redis?.port || 6379,
       password: config.redis?.password,
-      db: config.redis?.db || 0,
-      keyPrefix: config.redis?.keyPrefix || 'monkagents:',
+      db: config.redis?.db ?? 1, // 默认使用 Redis db 1
+      keyPrefix: config.redis?.keyPrefix || 'monkagents_test:',
     },
     database: {
       host: config.database?.host || 'localhost',
       port: config.database?.port || 3306,
       username: config.database?.username || 'root',
       password: config.database?.password || 'root',
-      database: config.database?.database || 'monkagents',
+      database: config.database?.database || 'monkagents_test', // 默认测试数据库
     },
   };
 }
@@ -75,16 +75,9 @@ async function cleanupRedis(config: TestCleanupConfig['redis']): Promise<void> {
 
     await client.connect();
 
-    // 获取所有匹配前缀的 key
-    const pattern = `${config.keyPrefix}*`;
-    const keys = await client.keys(pattern);
-
-    if (keys.length > 0) {
-      await client.del(...keys);
-      logger.log(`✅ 已清理 ${keys.length} 个 Redis key (pattern: ${pattern})`);
-    } else {
-      logger.log('✅ 没有需要清理的 Redis 数据');
-    }
+    // 清空当前测试数据库（FLUSHDB 只清空当前 db）
+    await client.flushdb();
+    logger.log(`✅ 已清空测试 Redis 数据库 (db: ${config.db})`);
 
     await client.quit();
   } catch (error) {
@@ -94,6 +87,14 @@ async function cleanupRedis(config: TestCleanupConfig['redis']): Promise<void> {
 
 async function cleanupDatabase(config: TestCleanupConfig['database']): Promise<void> {
   const logger = new Logger('GlobalTeardown:Database');
+
+  // 安全检查：确保只清理测试数据库
+  const prodDatabases = ['monkagents', 'monkagents_prod', 'production'];
+  if (prodDatabases.includes(config.database.toLowerCase())) {
+    logger.error(`❌ 拒绝清理生产数据库: ${config.database}`);
+    logger.error('   测试清理只能作用于测试数据库 (如 monkagents_test)');
+    return;
+  }
 
   const dataSource = new DataSource({
     type: 'mysql',
@@ -106,8 +107,10 @@ async function cleanupDatabase(config: TestCleanupConfig['database']): Promise<v
 
   try {
     await dataSource.initialize();
+    logger.log(`🧹 清理测试数据库: ${config.database}`);
 
     // 清理各个表的数据（保留表结构）
+    // 使用 DELETE 而不是 TRUNCATE，以避免外键约束问题
     const tables = [
       'execution_logs',
       'checkpoints',
@@ -119,16 +122,27 @@ async function cleanupDatabase(config: TestCleanupConfig['database']): Promise<v
       'sessions',
     ];
 
-    for (const table of tables) {
+    // 禁用外键检查，按逆序删除
+    await dataSource.query('SET FOREIGN_KEY_CHECKS = 0');
+
+    for (const table of tables.reverse()) {
       try {
-        await dataSource.query(`TRUNCATE TABLE ${table}`);
+        const result = await dataSource.query(`DELETE FROM ${table}`);
+        if (result.affectedRows > 0) {
+          logger.log(`  - 清理 ${table}: ${result.affectedRows} 行`);
+        }
+        // 重置自增 ID
+        await dataSource.query(`ALTER TABLE ${table} AUTO_INCREMENT = 1`);
       } catch {
         // 表可能不存在，忽略
       }
     }
 
+    // 重新启用外键检查
+    await dataSource.query('SET FOREIGN_KEY_CHECKS = 1');
+
     await dataSource.destroy();
-    logger.log('✅ 数据库测试数据清理完成');
+    logger.log('✅ 测试数据库清理完成');
   } catch (error) {
     logger.warn(`数据库清理失败: ${error}`);
     if (dataSource.isInitialized) {
@@ -138,9 +152,28 @@ async function cleanupDatabase(config: TestCleanupConfig['database']): Promise<v
 }
 
 export default async function globalTeardown() {
-  console.log('🧹 开始清理测试脏数据...');
+  console.log('🧹 开始清理测试数据...');
 
   const config = loadTestConfig();
+
+  // 验证是否使用测试配置（安全检查）
+  const prodDatabases = ['monkagents', 'monkagents_prod', 'production'];
+  if (prodDatabases.includes(config.database.database.toLowerCase())) {
+    console.error('');
+    console.error('╔══════════════════════════════════════════════════════════════╗');
+    console.error('║  ⚠️  安全警告：拒绝清理生产数据库！                          ║');
+    console.error('╠══════════════════════════════════════════════════════════════╣');
+    console.error(`║  当前数据库: ${config.database.database.padEnd(48)}║`);
+    console.error('║                                                              ║');
+    console.error('║  测试清理只能作用于测试数据库（如 monkagents_test）          ║');
+    console.error('║  请检查 configs/system.test.yaml 配置                       ║');
+    console.error('╚══════════════════════════════════════════════════════════════╝');
+    console.error('');
+    return;
+  }
+
+  console.log(`📦 目标数据库: ${config.database.database}`);
+  console.log(`📦 目标 Redis DB: ${config.redis.db}`);
 
   // 并行清理 Redis 和数据库
   await Promise.all([

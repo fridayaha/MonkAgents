@@ -14,6 +14,7 @@ describe('TasksService', () => {
     findOne: jest.fn(),
     find: jest.fn(),
     remove: jest.fn(),
+    update: jest.fn(),
     createQueryBuilder: jest.fn(),
   };
 
@@ -240,11 +241,15 @@ describe('TasksService', () => {
       });
       mockSubtaskRepository.create.mockReturnValue({ id: 'subtask-1', ...dto, order: 0, status: 'pending' });
       mockSubtaskRepository.save.mockResolvedValue({ id: 'subtask-1', ...dto, order: 0, status: 'pending' });
-      mockTaskRepository.save.mockResolvedValue({ ...mockTask, assignedAgents: ['wukong'] });
+      mockTaskRepository.update.mockResolvedValue({ affected: 1 });
 
       const result = await service.createSubtask(dto);
 
       expect(result).toBeDefined();
+      expect(mockTaskRepository.update).toHaveBeenCalledWith(
+        dto.taskId,
+        { assignedAgents: ['wukong'] }
+      );
     });
   });
 });

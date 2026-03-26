@@ -47,10 +47,23 @@ export class ConfigService {
   }
 
   private loadSystemConfigSync(): SystemConfig {
-    const configPaths = [
-      join(process.cwd(), 'configs', 'system.yaml'),
-      join(process.cwd(), '..', '..', 'configs', 'system.yaml'),
-    ];
+    // 根据环境选择配置文件
+    const isTest = process.env.NODE_ENV === 'test';
+
+    const configPaths = isTest
+      ? [
+          // 测试环境优先加载测试配置
+          join(process.cwd(), 'configs', 'system.test.yaml'),
+          join(process.cwd(), '..', '..', 'configs', 'system.test.yaml'),
+          // 回退到默认配置
+          join(process.cwd(), 'configs', 'system.yaml'),
+          join(process.cwd(), '..', '..', 'configs', 'system.yaml'),
+        ]
+      : [
+          // 生产/开发环境
+          join(process.cwd(), 'configs', 'system.yaml'),
+          join(process.cwd(), '..', '..', 'configs', 'system.yaml'),
+        ];
 
     for (const configPath of configPaths) {
       try {
