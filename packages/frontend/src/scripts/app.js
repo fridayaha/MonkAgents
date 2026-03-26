@@ -1744,7 +1744,7 @@ class App {
     const modalContent = debugPage?.querySelector('.modal-content');
     if (modalContent) {
       const titleEl = modalContent.querySelector('h3');
-      if (titleEl) titleEl.innerHTML = `${getIcon('tasks')} 任务详情`;
+      if (titleEl) titleEl.innerHTML = `<span style="width: 18px; height: 18px; display: inline-flex;">${getIcon('tasks')}</span> 任务详情`;
       if (debugContent) {
         debugContent.innerHTML = content;
       }
@@ -1776,7 +1776,7 @@ class App {
 
     debugContent.innerHTML = `
       <div class="debug-section">
-        <h3>${getIcon('info')} 指标统计</h3>
+        <h3><span style="width: 18px; height: 18px; display: inline-flex;">${getIcon('info')}</span> 指标统计</h3>
         <div class="debug-metrics">
           <div class="metric-card">
             <div class="metric-label">Token 使用量</div>
@@ -2721,7 +2721,7 @@ class App {
         </div>
         <div style="margin-bottom: 16px;">
           <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-            <input type="text" id="dir-path-input" placeholder="输入路径" value="${currentPath}" style="flex: 1;">
+            <input type="text" id="dir-path-input" placeholder="输入路径" value="${currentPath}">
             <button id="dir-go-btn" class="btn btn-secondary">转到</button>
           </div>
           <div id="dir-list" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md);">

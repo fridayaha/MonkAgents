@@ -4,6 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MonkAgents - 多智能体协作平台</title>
+  <!-- Prevent theme flash: apply saved theme before CSS loads -->
+  <script>
+    (function() {
+      const saved = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = saved || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+      // Also set initial background color to prevent white flash
+      if (theme === 'dark') {
+        document.documentElement.style.backgroundColor = '#0f172a';
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="./styles/main.css">
 </head>
 <body>
