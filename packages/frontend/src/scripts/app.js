@@ -1,5 +1,6 @@
 import api from './api.js';
 import wsClient from './websocket.js';
+import { icons, getIcon } from './icons.js';
 
 /**
  * MonkAgents 主应用类
@@ -37,6 +38,8 @@ class App {
   }
 
   async init() {
+    this.initTheme();
+    this.initIcons();
     this.bindEvents();
     this.bindNavigation();
     await this.loadAgents();
@@ -44,9 +47,191 @@ class App {
     await this.loadTasks();
     this.initWebSocket();
     this.initMentionMenu();
+    this.initMobileDrawers();
     this.autoSelectRecentSession();
     // Initialize send button state
     this.updateSendButtonState();
+  }
+
+  // ==================== Mobile Drawers ====================
+
+  initMobileDrawers() {
+    const overlay = document.getElementById('drawer-overlay');
+    const sessionsDrawer = document.getElementById('sessions-drawer');
+    const agentsDrawer = document.getElementById('agents-drawer');
+    const menuBtn = document.getElementById('mobile-menu-btn');
+    const agentsBtn = document.getElementById('mobile-agents-btn');
+
+    // Toggle sessions drawer
+    menuBtn?.addEventListener('click', () => {
+      this.toggleDrawer('sessions');
+    });
+
+    // Toggle agents drawer
+    agentsBtn?.addEventListener('click', () => {
+      this.toggleDrawer('agents');
+    });
+
+    // Close on overlay click
+    overlay?.addEventListener('click', () => {
+      this.closeAllDrawers();
+    });
+
+    // Close on escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.closeAllDrawers();
+      }
+    });
+  }
+
+  toggleDrawer(type) {
+    const overlay = document.getElementById('drawer-overlay');
+    const sessionsDrawer = document.getElementById('sessions-drawer');
+    const agentsDrawer = document.getElementById('agents-drawer');
+
+    if (type === 'sessions') {
+      const isOpen = sessionsDrawer?.classList.contains('open');
+      this.closeAllDrawers();
+      if (!isOpen) {
+        sessionsDrawer?.classList.add('open');
+        overlay?.classList.add('visible');
+        this.syncDrawerContent('sessions');
+      }
+    } else if (type === 'agents') {
+      const isOpen = agentsDrawer?.classList.contains('open');
+      this.closeAllDrawers();
+      if (!isOpen) {
+        agentsDrawer?.classList.add('open');
+        overlay?.classList.add('visible');
+        this.syncDrawerContent('agents');
+      }
+    }
+  }
+
+  closeAllDrawers() {
+    const overlay = document.getElementById('drawer-overlay');
+    document.querySelectorAll('.sidebar-drawer').forEach(drawer => {
+      drawer.classList.remove('open');
+    });
+    overlay?.classList.remove('visible');
+  }
+
+  syncDrawerContent(type) {
+    if (type === 'sessions') {
+      const source = document.getElementById('sessions-list');
+      const target = document.getElementById('sessions-list-drawer');
+      if (source && target) {
+        target.innerHTML = source.innerHTML;
+        // Re-bind click events
+        target.querySelectorAll('.session-item').forEach(item => {
+          item.addEventListener('click', (e) => {
+            if (!e.target.classList.contains('session-delete')) {
+              this.selectSession(item.dataset.sessionId);
+              this.closeAllDrawers();
+            }
+          });
+        });
+      }
+    } else if (type === 'agents') {
+      const source = document.getElementById('agents-list');
+      const target = document.getElementById('agents-list-drawer');
+      if (source && target) {
+        target.innerHTML = source.innerHTML;
+        // Re-bind click events for agent summoning
+        target.querySelectorAll('.agent-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const agentId = item.dataset.agentId;
+            const agent = this.agents.find(a => a.id === agentId);
+            if (agent) {
+              const input = document.getElementById('message-input');
+              input.value = `@${agent.config.name} `;
+              input.focus();
+              this.updateSendButtonState();
+              this.closeAllDrawers();
+            }
+          });
+        });
+      }
+    }
+  }
+
+  // ==================== Theme Management ====================
+
+  initTheme() {
+    const saved = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const theme = saved || (prefersDark ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', theme);
+
+    // Listen for system theme changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      if (!localStorage.getItem('theme')) {
+        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+      }
+    });
+  }
+
+  toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+  }
+
+  // ==================== Icon Initialization ====================
+
+  initIcons() {
+    // Logo
+    this.setIcon('logo-icon', 'logo', 28);
+
+    // Navigation icons
+    this.setIcon('nav-icon-chat', 'chat', 18);
+    this.setIcon('nav-icon-tasks', 'tasks', 18);
+    this.setIcon('nav-icon-scheduled', 'scheduled', 18);
+
+    // Theme toggle icons
+    this.setIcon('theme-moon-icon', 'moon', 20);
+    this.setIcon('theme-sun-icon', 'sun', 20);
+
+    // Header icons
+    this.setIcon('new-session-icon', 'add', 16);
+    this.setIcon('debug-icon', 'debug', 18);
+
+    // Page icons
+    this.setIcon('tasks-page-icon', 'tasks', 24);
+    this.setIcon('scheduled-page-icon', 'scheduled', 24);
+    this.setIcon('crown-icon', 'crown', 24);
+
+    // Close icons
+    this.setIcon('close-tasks-icon', 'close', 16);
+    this.setIcon('close-scheduled-icon', 'close', 16);
+    this.setIcon('close-debug-modal-icon', 'close', 18);
+    this.setIcon('debug-modal-icon', 'debug', 20);
+
+    // Modal icons
+    this.setIcon('random-icon', 'random', 16);
+    this.setIcon('browse-icon', 'browse', 16);
+
+    // Close modal icons
+    document.querySelectorAll('.close-modal-icon').forEach(el => {
+      el.innerHTML = getIcon('close');
+    });
+
+    // New schedule icon
+    this.setIcon('new-schedule-icon', 'add', 16);
+  }
+
+  setIcon(elementId, iconName, size = 24) {
+    const el = document.getElementById(elementId);
+    if (el) {
+      el.innerHTML = getIcon(iconName);
+      const svg = el.querySelector('svg');
+      if (svg) {
+        svg.setAttribute('width', size);
+        svg.setAttribute('height', size);
+      }
+    }
   }
 
   // ==================== Navigation ====================
@@ -85,6 +270,11 @@ class App {
   // ==================== Event Binding ====================
 
   bindEvents() {
+    // Theme toggle
+    document.getElementById('theme-toggle')?.addEventListener('click', () => {
+      this.toggleTheme();
+    });
+
     // New session button
     document.getElementById('new-session-btn').addEventListener('click', () => {
       this.showModal('new-session-modal');
@@ -232,7 +422,7 @@ class App {
       this.renderTasks();
     } catch (error) {
       console.error('Failed to load tasks:', error);
-      this.renderEmptyState('task-list', '📋', '暂无任务', '创建新会话开始任务');
+      this.renderEmptyState('task-list', 'tasks', '暂无任务', '创建新会话开始任务');
     }
   }
 
@@ -242,7 +432,7 @@ class App {
       this.renderScheduledTasks();
     } catch (error) {
       console.error('Failed to load scheduled tasks:', error);
-      this.renderEmptyState('scheduled-list', '⏰', '暂无定时任务', '点击右上角按钮创建定时任务');
+      this.renderEmptyState('scheduled-list', 'scheduled', '暂无定时任务', '点击右上角按钮创建定时任务');
     }
   }
 
@@ -257,7 +447,7 @@ class App {
       const statusText = this.getStatusText(agent.status);
 
       return `
-        <div class="agent-item" data-agent-id="${agent.id}">
+        <div class="agent-item" data-agent-id="${agent.id}" title="点击召唤 ${agent.config.name}">
           <div class="agent-avatar ${agent.id}">
             <span>${agent.config.emoji}</span>
             <span class="agent-status-indicator ${statusClass}"></span>
@@ -265,13 +455,29 @@ class App {
           <div class="agent-info">
             <div class="agent-name">
               ${agent.config.name}
-              <span style="font-size: 0.7rem; color: var(--text-muted);">${statusText}</span>
+              <span style="font-size: 0.7rem; color: var(--on-surface-muted);">${statusText}</span>
             </div>
             <div class="agent-role">${this.getRoleName(agent.config.role)}</div>
           </div>
         </div>
       `;
     }).join('');
+
+    // Bind click events for agent summoning
+    container.querySelectorAll('.agent-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const agentId = item.dataset.agentId;
+        const agent = this.agents.find(a => a.id === agentId);
+        if (agent) {
+          const input = document.getElementById('message-input');
+          const currentValue = input.value.trim();
+          // Add @mention for the agent
+          input.value = currentValue ? `${currentValue} @${agent.config.name} ` : `@${agent.config.name} `;
+          input.focus();
+          this.updateSendButtonState();
+        }
+      });
+    });
   }
 
   renderSessions() {
@@ -282,11 +488,13 @@ class App {
       container.innerHTML = `
         <div class="empty-state" style="padding: 24px;">
           <p style="font-size: 0.875rem;">暂无会话</p>
-          <p style="font-size: 0.75rem; color: var(--text-muted);">点击"新建"创建会话</p>
+          <p style="font-size: 0.75rem; color: var(--on-surface-muted);">点击"新建"创建会话</p>
         </div>
       `;
       return;
     }
+
+    const deleteIcon = getIcon('delete');
 
     container.innerHTML = this.sessions.map(session => `
       <div class="session-item ${this.currentSession?.id === session.id ? 'active' : ''}"
@@ -295,7 +503,7 @@ class App {
         <div class="session-item-meta">
           ${this.formatRelativeTime(session.createdAt)} · ${session.messageCount || 0} 条消息
         </div>
-        <button class="session-delete" data-session-id="${session.id}" title="删除会话">🗑</button>
+        <button class="session-delete" data-session-id="${session.id}" title="删除会话">${deleteIcon}</button>
       </div>
     `).join('');
 
@@ -323,20 +531,27 @@ class App {
     if (!this.currentSession?.messages?.length) {
       container.innerHTML = `
         <div class="welcome-message">
-          <h3>👑 欢迎使用 MonkAgents</h3>
+          <h3>
+            <span id="crown-icon" style="display: inline-flex; vertical-align: middle; margin-right: 8px;"></span>
+            欢迎使用 MonkAgents
+          </h3>
           <p>唐明皇陛下，选择或创建一个会话开始与智能体协作</p>
-          <p style="font-size: 0.875rem; color: #999; margin-top: 16px;">
+          <p style="font-size: 0.875rem; color: var(--on-surface-muted); margin-top: 16px;">
             提示：使用 @智能体名称 可以召唤特定智能体<br>
             例如：@孙悟空 写一个函数
           </p>
         </div>
       `;
+      // Re-init crown icon
+      this.setIcon('crown-icon', 'crown', 24);
       return;
     }
 
-    // Render messages and filter out empty ones
-    const rendered = this.currentSession.messages
-      .map(msg => this.renderMessage(msg))
+    // Group consecutive messages from the same sender
+    const groups = this.groupMessages(this.currentSession.messages);
+
+    // Render message groups
+    const rendered = groups.map(group => this.renderMessageGroup(group))
       .filter(html => html.length > 0);
 
     container.innerHTML = rendered.join('');
@@ -378,15 +593,193 @@ class App {
     }
   }
 
+  // ==================== Message Grouping ====================
+
+  /**
+   * Group consecutive messages from the same sender
+   * @param {Array} messages - Array of messages
+   * @returns {Array} Array of message groups
+   */
+  groupMessages(messages) {
+    const groups = [];
+    let currentGroup = null;
+
+    for (const msg of messages) {
+      // Skip status messages
+      if (msg.type === 'status' || msg.type === 'thinking') continue;
+
+      // Determine if we should start a new group
+      const shouldStartNewGroup = !currentGroup ||
+        currentGroup.sender !== msg.sender ||
+        currentGroup.senderId !== msg.senderId ||
+        // Always separate user messages from agent messages
+        (currentGroup.sender === 'user' && msg.sender !== 'user') ||
+        (currentGroup.sender !== 'user' && msg.sender === 'user') ||
+        // Separate tool_use messages into individual groups
+        msg.type === 'tool_use' ||
+        msg.type === 'permission_request' ||
+        currentGroup.messages[0]?.type === 'tool_use' ||
+        currentGroup.messages[0]?.type === 'permission_request';
+
+      if (shouldStartNewGroup) {
+        // Save current group if exists
+        if (currentGroup) {
+          groups.push(currentGroup);
+        }
+        // Start new group
+        currentGroup = {
+          sender: msg.sender,
+          senderId: msg.senderId,
+          senderName: msg.senderName,
+          messages: [msg]
+        };
+      } else {
+        // Add to current group
+        currentGroup.messages.push(msg);
+      }
+    }
+
+    // Don't forget the last group
+    if (currentGroup) {
+      groups.push(currentGroup);
+    }
+
+    return groups;
+  }
+
+  /**
+   * Render a message group
+   * @param {Object} group - Message group with sender info and messages
+   * @returns {string} HTML string
+   */
+  renderMessageGroup(group) {
+    const { sender, senderId, senderName, messages } = group;
+    const avatar = this.getMessageAvatar({ sender, senderId });
+
+    // If only one message, render normally
+    if (messages.length === 1) {
+      return this.renderMessage(messages[0]);
+    }
+
+    // Render grouped messages
+    const messagesHtml = messages.map((msg, index) => {
+      const isLast = index === messages.length - 1;
+      const contentHtml = this.formatContent(msg.content);
+
+      // Skip empty messages
+      if (!contentHtml && msg.type !== 'tool_use' && msg.type !== 'permission_request') {
+        return '';
+      }
+
+      // Special rendering for tool_use
+      if (msg.type === 'tool_use') {
+        return this.renderToolUseMessage(msg);
+      }
+
+      // Special rendering for permission_request
+      if (msg.type === 'permission_request' && msg.metadata?.permissionRequest) {
+        return `<div class="message-content">${this.renderPermissionCard(msg.metadata.permissionRequest)}</div>`;
+      }
+
+      // Regular message content
+      return `
+        <div class="message-group-item">
+          <div class="message-content">${contentHtml}</div>
+          ${isLast ? `<span class="message-time-inline">${this.formatTime(msg.createdAt)}</span>` : ''}
+        </div>
+      `;
+    }).filter(html => html.length > 0).join('');
+
+    if (!messagesHtml) return '';
+
+    return `
+      <div class="message-group ${sender} ${senderId || ''}" data-sender-id="${senderId || ''}">
+        <div class="message-group-header">
+          <span class="message-avatar ${senderId || ''}">${avatar}</span>
+          <span class="message-sender">${senderName}</span>
+          <span class="message-time">${this.formatTime(messages[0].createdAt)}</span>
+        </div>
+        <div class="message-group-content">
+          ${messagesHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render a tool_use message (used in groups)
+   */
+  renderToolUseMessage(msg) {
+    const toolName = msg.metadata?.toolName || 'unknown';
+    const toolInput = msg.metadata?.input || {};
+    const isComplete = msg.metadata?.isComplete === true;
+    const duration = msg.metadata?.duration;
+    const isLoading = !isComplete;
+
+    const toolSummary = this.getToolSummary(toolName, toolInput);
+
+    const loadingIcon = `<svg class="tool-call-icon loading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-opacity="1"/></svg>`;
+    const successIcon = `<svg class="tool-call-icon success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+
+    // Build summary section (same for both states)
+    const summarySection = toolSummary
+      ? `<div class="tool-call-summary">${toolSummary}</div>`
+      : '';
+
+    if (isLoading) {
+      return `
+        <div class="message-content">
+          <div class="tool-call-card">
+            <div class="tool-call-header ${!toolSummary ? 'no-border' : ''}">
+              ${loadingIcon}
+              <span class="tool-call-name">${toolName}</span>
+              <span class="tool-call-status in-progress">执行中</span>
+            </div>
+            ${summarySection}
+          </div>
+        </div>
+      `;
+    }
+
+    const durationText = duration ? `<span class="tool-call-duration">${(duration / 1000).toFixed(2)}s</span>` : '';
+    return `
+      <div class="message-content">
+        <div class="tool-call-card">
+          <div class="tool-call-header">
+            ${successIcon}
+            <span class="tool-call-name">${toolName}</span>
+            <span class="tool-call-status completed">完成</span>
+            ${durationText}
+          </div>
+          ${summarySection}
+          <details class="tool-call-details">
+            <summary>查看详情</summary>
+            <div class="tool-call-input"><pre><code>${this.escapeHtml(JSON.stringify(toolInput, null, 2))}</code></pre></div>
+          </details>
+        </div>
+      </div>
+    `;
+  }
+
   renderMessage(msg) {
     const avatar = this.getMessageAvatar(msg);
     const typeClass = msg.type || 'text';
 
-    let contentHtml = this.formatContent(msg.content);
+    // Format content (may be empty for first streaming chunk)
+    let contentHtml = this.formatContent(msg.content || '');
 
-    // Skip messages with no content after filtering (e.g., only execution_summary)
-    if (!contentHtml && msg.type !== 'tool_use' && msg.type !== 'permission_request') {
+    // Special case: streaming messages should always render, even with empty content
+    const isStreaming = msg.metadata?.isStreaming === true;
+
+    // Skip messages with no content (except streaming, tool_use, permission_request)
+    if (!contentHtml && !isStreaming && msg.type !== 'tool_use' && msg.type !== 'permission_request') {
       return '';
+    }
+
+    // Add typing cursor for streaming messages
+    if (isStreaming) {
+      contentHtml = contentHtml || '';
+      contentHtml += '<span class="typing-cursor"></span>';
     }
 
     // Special rendering for tool_use
@@ -394,29 +787,48 @@ class App {
       const toolName = msg.metadata?.toolName || 'unknown';
       const toolInput = msg.metadata?.input || {};
       const isComplete = msg.metadata?.isComplete === true;
+      const duration = msg.metadata?.duration;
       const isLoading = !isComplete;
 
+      // Get tool-specific summary
+      const toolSummary = this.getToolSummary(toolName, toolInput);
+
+      // SVG icons - consistent size
+      const loadingIcon = `<svg class="tool-call-icon loading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-opacity="1"/></svg>`;
+      const successIcon = `<svg class="tool-call-icon success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+
+      // Build summary section (same for both states to maintain consistent height)
+      const summarySection = toolSummary
+        ? `<div class="tool-call-summary">${toolSummary}</div>`
+        : '';
+
       if (isLoading) {
-        // 工具执行中：只显示工具名和loading状态，不显示详情
         contentHtml = `
-          <div class="tool-header">
-            <span class="tool-loading-icon">⏳</span>
-            <span class="tool-name">${toolName}</span>
-            <span class="tool-loading">执行中...</span>
+          <div class="tool-call-card">
+            <div class="tool-call-header ${!toolSummary ? 'no-border' : ''}">
+              ${loadingIcon}
+              <span class="tool-call-name">${toolName}</span>
+              <span class="tool-call-status in-progress">执行中</span>
+            </div>
+            ${summarySection}
           </div>
         `;
       } else {
-        // 工具执行完成：显示详情，默认收起
+        const durationText = duration ? `<span class="tool-call-duration">${(duration / 1000).toFixed(2)}s</span>` : '';
         contentHtml = `
-          <div class="tool-header">
-            <span class="tool-icon">✅</span>
-            <span class="tool-name">${toolName}</span>
-            <span class="tool-status-complete">执行完成</span>
+          <div class="tool-call-card">
+            <div class="tool-call-header">
+              ${successIcon}
+              <span class="tool-call-name">${toolName}</span>
+              <span class="tool-call-status completed">完成</span>
+              ${durationText}
+            </div>
+            ${summarySection}
+            <details class="tool-call-details">
+              <summary>查看详情</summary>
+              <div class="tool-call-input"><pre><code>${this.escapeHtml(JSON.stringify(toolInput, null, 2))}</code></pre></div>
+            </details>
           </div>
-          <details class="tool-details">
-            <summary class="tool-summary">点击查看详情</summary>
-            <div class="tool-input"><pre><code>${this.escapeHtml(JSON.stringify(toolInput, null, 2))}</code></pre></div>
-          </details>
         `;
       }
     }
@@ -427,7 +839,7 @@ class App {
     }
 
     return `
-      <div class="message ${msg.sender} ${typeClass}" data-msg-id="${msg.id}">
+      <div class="message ${msg.sender} ${typeClass} ${msg.senderId || ''}" data-msg-id="${msg.id}">
         <div class="message-header">
           <span class="message-avatar ${msg.senderId || ''}">${avatar}</span>
           <span class="message-sender">${msg.senderName}</span>
@@ -443,7 +855,7 @@ class App {
     if (!container) return;
 
     if (this.tasks.length === 0) {
-      this.renderEmptyState('task-list', '📋', '暂无任务', '创建新会话开始任务');
+      this.renderEmptyState('task-list', 'tasks', '暂无任务', '创建新会话开始任务');
       return;
     }
 
@@ -456,9 +868,9 @@ class App {
           <span class="task-status ${task.status}">${this.getStatusText(task.status)}</span>
         </div>
         <div class="task-meta">
-          <span>📁 ${task.sessionId?.substring(0, 8)}...</span>
-          <span>🕐 ${this.formatTime(task.createdAt)}</span>
-          <span>📊 ${task.subtasks?.length || 0} 个子任务</span>
+          <span>${task.sessionId?.substring(0, 8)}...</span>
+          <span>${this.formatTime(task.createdAt)}</span>
+          <span>${task.subtasks?.length || 0} 个子任务</span>
         </div>
       </div>
     `}).join('');
@@ -476,9 +888,12 @@ class App {
     if (!container) return;
 
     if (this.scheduledTasks.length === 0) {
-      this.renderEmptyState('scheduled-list', '⏰', '暂无定时任务', '点击右上角按钮创建定时任务');
+      this.renderEmptyState('scheduled-list', 'scheduled', '暂无定时任务', '点击右上角按钮创建定时任务');
       return;
     }
+
+    const deleteIcon = getIcon('delete');
+    const playIcon = `<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
 
     container.innerHTML = this.scheduledTasks.map(task => `
       <div class="schedule-card">
@@ -488,20 +903,22 @@ class App {
         </div>
         <div class="schedule-description">${task.description || '无描述'}</div>
         <div class="task-meta" style="margin-bottom: 12px;">
-          <span>⏰ ${this.formatTime(task.nextRunAt)}</span>
-          <span>🔄 ${this.getRepeatText(task.repeat)}</span>
+          <span>${this.formatTime(task.nextRunAt)}</span>
+          <span>${this.getRepeatText(task.repeat)}</span>
         </div>
         <div class="schedule-actions">
-          <button class="btn btn-secondary btn-icon" onclick="app.runScheduledTask('${task.id}')">▶ 执行</button>
-          <button class="btn btn-danger btn-icon" onclick="app.deleteScheduledTask('${task.id}')">🗑 删除</button>
+          <button class="btn btn-secondary btn-icon" onclick="app.runScheduledTask('${task.id}')">${playIcon} 执行</button>
+          <button class="btn btn-danger btn-icon" onclick="app.deleteScheduledTask('${task.id}')">${deleteIcon} 删除</button>
         </div>
       </div>
     `).join('');
   }
 
-  renderEmptyState(containerId, icon, title, description) {
+  renderEmptyState(containerId, iconName, title, description) {
     const container = document.getElementById(containerId);
     if (!container) return;
+
+    const icon = getIcon(iconName) || '';
 
     container.innerHTML = `
       <div class="empty-state">
@@ -580,9 +997,12 @@ class App {
   updateChatHeader() {
     document.getElementById('current-session-title').textContent =
       this.currentSession?.title || '未命名会话';
-    document.getElementById('working-directory').innerHTML =
-      this.currentSession?.workingDirectory ?
-      `<span>📁</span> ${this.currentSession.workingDirectory}` : '';
+    const workingDirEl = document.getElementById('working-directory');
+    if (this.currentSession?.workingDirectory) {
+      workingDirEl.innerHTML = `${getIcon('browse')}<span>${this.currentSession.workingDirectory}</span>`;
+    } else {
+      workingDirEl.innerHTML = '';
+    }
   }
 
   updateSessionFilter() {
@@ -630,14 +1050,31 @@ class App {
     // Set generating state
     this.setGeneratingState(true);
 
-    // Show loading indicator before sending
+    // Create and add user message to DOM immediately
+    const userMessage = {
+      id: `temp-user-${Date.now()}`,
+      sender: 'user',
+      senderId: 'user',
+      senderName: '用户',
+      content: content,
+      type: 'text',
+      createdAt: new Date().toISOString(),
+    };
+
+    // Add to session messages
+    if (!this.currentSession.messages) {
+      this.currentSession.messages = [];
+    }
+    this.currentSession.messages.push(userMessage);
+
+    // Append to DOM immediately
+    this.appendMessageToDOM(userMessage);
+
+    // Show loading indicator AFTER user message
     this.showLoadingIndicator();
 
     // Send via WebSocket
     wsClient.sendMessage(this.currentSession.id, content);
-
-    // Note: Don't add message to UI here - wait for server confirmation
-    // to ensure it's saved to history
   }
 
   /**
@@ -815,6 +1252,24 @@ class App {
       this.currentSession.messages = [];
     }
 
+    // Check for duplicate user message (we already added it optimistically)
+    if (message.sender === 'user') {
+      // Find and replace temp user message with server-confirmed one
+      const tempIndex = this.currentSession.messages.findIndex(m =>
+        m.sender === 'user' && m.id.startsWith('temp-user-')
+      );
+      if (tempIndex >= 0) {
+        // Replace temp message with confirmed message (keep same content, update ID)
+        this.currentSession.messages[tempIndex].id = message.id;
+        // Update DOM data attribute
+        const msgEl = document.querySelector(`[data-msg-id^="temp-user-"]`);
+        if (msgEl) {
+          msgEl.setAttribute('data-msg-id', message.id);
+        }
+        return; // Don't add duplicate
+      }
+    }
+
     // Hide loading indicator when first agent content arrives (not user message)
     // Note: Don't hide thinking indicator here - it's handled by thinking message logic
     if (message.sender === 'agent' && (message.type === 'text' || message.type === 'tool_use')) {
@@ -852,28 +1307,9 @@ class App {
     const isToolUse = message.type === 'tool_use';
     const isToolUpdate = isToolUse && message.id && message.id.startsWith('tool-');
 
-    console.log('addMessage:', {
-      id: message.id,
-      type: message.type,
-      isStreaming,
-      isStreamingChunk,
-      isComplete,
-      isToolUse,
-      isToolUpdate,
-      toolName: message.metadata?.toolName,
-      contentLength: message.content?.length || 0
-    });
-
     // Handle tool_use message updates
     if (isToolUpdate) {
       const existingIndex = this.currentSession.messages.findIndex(m => m.id === message.id);
-
-      console.log('tool_use update:', {
-        messageId: message.id,
-        existingIndex,
-        isComplete,
-        existingMessages: this.currentSession.messages.filter(m => m.id?.startsWith('tool-')).map(m => ({ id: m.id, toolName: m.metadata?.toolName }))
-      });
 
       if (existingIndex >= 0 && isComplete) {
         // Update existing tool_use message to mark it as complete
@@ -882,15 +1318,15 @@ class App {
           isComplete: true,
           result: message.metadata?.result
         };
-        this.renderMessages();
+        // Use incremental update for tool completion
+        this.updateToolMessageDOM(message.id, true);
         return;
       } else if (!isComplete) {
         // New tool_use message (in progress)
         this.currentSession.messages.push(message);
-        this.renderMessages();
+        this.appendMessageToDOM(message);
         return;
       }
-      // If complete but no existing message, ignore
       return;
     }
 
@@ -901,33 +1337,34 @@ class App {
       if (isComplete) {
         // Streaming complete - update or create the final message
         if (isFinal && message.content) {
-          // This is the final cleaned content from backend
-          // Replace the accumulated content with the cleaned version
           if (existingIndex >= 0) {
             this.currentSession.messages[existingIndex].content = message.content;
             this.currentSession.messages[existingIndex].type = 'text';
             delete this.currentSession.messages[existingIndex].metadata?.isStreaming;
             delete this.currentSession.messages[existingIndex].metadata?.isComplete;
             delete this.currentSession.messages[existingIndex].metadata?.isFinal;
+            // Update DOM with final content
+            this.updateStreamingMessageDOM(message.id, message.content, true);
           } else {
-            // No existing message, create new one with cleaned content
             this.currentSession.messages.push({
               ...message,
               type: 'text',
             });
+            this.appendMessageToDOM(this.currentSession.messages[this.currentSession.messages.length - 1]);
           }
         } else if (existingIndex >= 0) {
-          // Legacy: just mark as complete without content replacement
           this.currentSession.messages[existingIndex].type = 'text';
           delete this.currentSession.messages[existingIndex].metadata?.isStreaming;
           delete this.currentSession.messages[existingIndex].metadata?.isComplete;
+          this.updateStreamingMessageDOM(message.id, this.currentSession.messages[existingIndex].content, true);
         }
-        // If no existing message and no content, ignore
       } else if (isStreamingChunk) {
         // This is a streaming chunk - append to existing or create new
         if (existingIndex >= 0) {
           // Append content to existing streaming message
           this.currentSession.messages[existingIndex].content += message.content;
+          // Incremental DOM update - no re-render
+          this.updateStreamingMessageDOM(message.id, this.currentSession.messages[existingIndex].content, false);
         } else {
           // First chunk of streaming message
           this.currentSession.messages.push({
@@ -935,6 +1372,7 @@ class App {
             content: message.content,
             type: 'thinking',
           });
+          this.appendMessageToDOM(this.currentSession.messages[this.currentSession.messages.length - 1]);
         }
       }
     } else {
@@ -946,12 +1384,11 @@ class App {
       } else {
         // Add new message
         this.currentSession.messages.push(message);
+        this.appendMessageToDOM(message);
       }
     }
 
-    this.renderMessages();
-
-    // Scroll to bottom after rendering
+    // Scroll to bottom
     const container = document.getElementById('messages-container');
     if (container) {
       container.scrollTop = container.scrollHeight;
@@ -959,6 +1396,77 @@ class App {
 
     // Update session message count in sidebar
     this.updateSessionMessageCount(this.currentSession.id);
+  }
+
+  // ==================== Incremental DOM Updates ====================
+
+  /**
+   * Append a single message to DOM without re-rendering everything
+   */
+  appendMessageToDOM(message) {
+    const container = document.getElementById('messages-container');
+    if (!container) return;
+
+    // Remove welcome message if present
+    const welcome = container.querySelector('.welcome-message');
+    if (welcome) welcome.remove();
+
+    // Remove existing message with same ID
+    const existing = container.querySelector(`[data-msg-id="${message.id}"]`);
+    if (existing) existing.remove();
+
+    // Render and append
+    const html = this.renderMessage(message);
+    if (html) {
+      container.insertAdjacentHTML('beforeend', html);
+    }
+
+    // Scroll to bottom
+    container.scrollTop = container.scrollHeight;
+  }
+
+  /**
+   * Update streaming message content directly in DOM
+   */
+  updateStreamingMessageDOM(messageId, content, isComplete) {
+    const msgEl = document.querySelector(`[data-msg-id="${messageId}"] .message-content`);
+    if (!msgEl) return;
+
+    // Format content
+    const formattedContent = this.formatContent(content);
+
+    if (isComplete) {
+      // Final update - replace content and remove cursor
+      msgEl.innerHTML = formattedContent;
+      msgEl.classList.remove('streaming');
+    } else {
+      // Streaming update - add cursor
+      msgEl.innerHTML = formattedContent + '<span class="typing-cursor"></span>';
+      msgEl.classList.add('streaming');
+    }
+
+    // Scroll to bottom
+    const container = document.getElementById('messages-container');
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  /**
+   * Update tool message status in DOM
+   */
+  updateToolMessageDOM(messageId, isComplete) {
+    const msgEl = document.querySelector(`[data-msg-id="${messageId}"]`);
+    if (!msgEl) return;
+
+    const message = this.currentSession.messages.find(m => m.id === messageId);
+    if (!message) return;
+
+    // Re-render just this message
+    const newHtml = this.renderMessage(message);
+    if (newHtml) {
+      msgEl.outerHTML = newHtml;
+    }
   }
 
   updateSessionMessageCount(sessionId) {
@@ -1111,7 +1619,7 @@ class App {
     const modalContent = modal?.querySelector('.modal-content');
     if (modalContent) {
       const titleEl = modalContent.querySelector('h3');
-      if (titleEl) titleEl.textContent = '📋 任务详情';
+      if (titleEl) titleEl.innerHTML = `${getIcon('tasks')} 任务详情`;
       const debugContent = document.getElementById('debug-content');
       if (debugContent) {
         debugContent.innerHTML = content;
@@ -1145,7 +1653,7 @@ class App {
 
     container.innerHTML = `
       <div class="debug-section">
-        <h3>📊 指标统计</h3>
+        <h3>${getIcon('info')} 指标统计</h3>
         <div class="debug-metrics">
           <div class="metric-card">
             <div class="metric-label">Token 使用量</div>
@@ -1681,6 +2189,33 @@ class App {
     return agent?.config?.name || agentId;
   }
 
+  getToolSummary(toolName, input) {
+    switch (toolName) {
+      case 'Read':
+        return input.file_path ? `读取文件: <code>${input.file_path}</code>` : null;
+      case 'Edit':
+        return input.file_path ? `编辑文件: <code>${input.file_path}</code>` : null;
+      case 'Write':
+        return input.file_path ? `写入文件: <code>${input.file_path}</code>` : null;
+      case 'Bash':
+        return input.command ? `执行命令: <code>${input.command.substring(0, 50)}${input.command.length > 50 ? '...' : ''}</code>` : null;
+      case 'Glob':
+        return input.pattern ? `搜索文件: <code>${input.pattern}</code>` : null;
+      case 'Grep':
+        return input.pattern ? `搜索内容: <code>${input.pattern}</code>` : null;
+      case 'WebFetch':
+        return input.url ? `获取网页: <code>${input.url.substring(0, 50)}${input.url.length > 50 ? '...' : ''}</code>` : null;
+      case 'WebSearch':
+        return input.query ? `搜索: <code>${input.query}</code>` : null;
+      case 'TaskOutput':
+        return `获取任务输出`;
+      case 'Agent':
+        return input.subagent_type ? `调用智能体: <code>${input.subagent_type}</code>` : null;
+      default:
+        return null;
+    }
+  }
+
   getMessageAvatar(msg) {
     if (msg.sender === 'user') return '👑';
     if (msg.sender === 'system') return '⚙';
@@ -1705,10 +2240,10 @@ class App {
   getStatusText(status) {
     const texts = {
       idle: '空闲',
-      thinking: '思考中',
-      executing: '执行中',
+      thinking: '进行中',
+      executing: '进行中',
       offline: '离线',
-      pending: '等待中',
+      pending: '进行中',
       completed: '已完成',
       failed: '失败',
     };
@@ -2054,16 +2589,19 @@ class App {
     modal.innerHTML = `
       <div class="modal-content" style="max-width: 600px; width: 90%;">
         <div class="modal-header">
-          <h3>📁 选择工作目录</h3>
-          <button class="btn btn-icon modal-close-btn">✕</button>
+          <h3 style="display: flex; align-items: center; gap: 8px;">
+            <span style="display: inline-flex;">${getIcon('browse')}</span>
+            选择工作目录
+          </h3>
+          <button class="btn btn-icon modal-close-btn">${getIcon('close')}</button>
         </div>
         <div style="margin-bottom: 16px;">
           <div style="display: flex; gap: 8px; margin-bottom: 8px;">
             <input type="text" id="dir-path-input" placeholder="输入路径" value="${currentPath}" style="flex: 1;">
             <button id="dir-go-btn" class="btn btn-secondary">转到</button>
           </div>
-          <div id="dir-list" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
-            <div style="padding: 20px; text-align: center; color: #999;">加载中...</div>
+          <div id="dir-list" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md);">
+            <div style="padding: 20px; text-align: center; color: var(--on-surface-muted);">加载中...</div>
           </div>
         </div>
         <div class="modal-actions">
@@ -2088,19 +2626,21 @@ class App {
 
         let html = '';
         if (response.error) {
-          html = `<div style="padding: 20px; text-align: center; color: #d32f2f;">${response.error}</div>`;
+          html = `<div style="padding: 20px; text-align: center; color: var(--status-error);">${response.error}</div>`;
         } else {
           if (response.parentPath) {
-            html += `<div class="dir-item" data-path="${response.parentPath}" style="padding: 8px; cursor: pointer; border-bottom: 1px solid #eee;">
-              <span style="color: #666;">📁 ..</span>
+            html += `<div class="dir-item" data-path="${response.parentPath}" style="padding: 8px; cursor: pointer; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px;">
+              <span style="display: inline-flex; color: var(--on-surface-muted);">${getIcon('browse')}</span>
+              <span style="color: var(--on-surface-muted);">..</span>
             </div>`;
           }
           if (response.directories.length === 0) {
-            html += `<div style="padding: 20px; text-align: center; color: #999;">空目录</div>`;
+            html += `<div style="padding: 20px; text-align: center; color: var(--on-surface-muted);">空目录</div>`;
           } else {
             for (const dir of response.directories) {
-              html += `<div class="dir-item" data-path="${dir.path}" style="padding: 8px; cursor: pointer; border-bottom: 1px solid #eee;">
-                <span>📁 ${dir.name}</span>
+              html += `<div class="dir-item" data-path="${dir.path}" style="padding: 8px; cursor: pointer; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px;">
+                <span style="display: inline-flex; color: var(--color-primary-500);">${getIcon('browse')}</span>
+                <span>${dir.name}</span>
               </div>`;
             }
           }
@@ -2113,7 +2653,7 @@ class App {
             loadDirectory(item.dataset.path);
           });
           item.addEventListener('mouseenter', () => {
-            item.style.backgroundColor = '#f5f5f5';
+            item.style.backgroundColor = 'var(--surface-tertiary)';
           });
           item.addEventListener('mouseleave', () => {
             item.style.backgroundColor = '';

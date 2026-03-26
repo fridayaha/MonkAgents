@@ -11,14 +11,46 @@
     <!-- Header -->
     <header class="header">
       <div class="header-left">
-        <h1 class="header-title">🧘 MonkAgents</h1>
+        <button id="mobile-menu-btn" class="mobile-menu-btn" title="打开会话列表">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+        <h1 class="header-title">
+          <span class="logo-icon" id="logo-icon"></span>
+          MonkAgents
+        </h1>
         <nav class="nav">
-          <button class="nav-item active" data-page="chat">💬 对话</button>
-          <button class="nav-item" data-page="tasks">📋 任务</button>
-          <button class="nav-item" data-page="scheduled">⏰ 定时任务</button>
+          <button class="nav-item active" data-page="chat">
+            <span class="nav-icon" id="nav-icon-chat"></span>
+            对话
+          </button>
+          <button class="nav-item" data-page="tasks">
+            <span class="nav-icon" id="nav-icon-tasks"></span>
+            任务
+          </button>
+          <button class="nav-item" data-page="scheduled">
+            <span class="nav-icon" id="nav-icon-scheduled"></span>
+            定时任务
+          </button>
         </nav>
       </div>
       <div class="header-right">
+        <button id="mobile-agents-btn" class="mobile-menu-btn" title="打开智能体列表">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="5" r="3"/>
+            <circle cx="6" cy="19" r="3"/>
+            <circle cx="18" cy="19" r="3"/>
+            <line x1="12" y1="8" x2="6" y2="16"/>
+            <line x1="12" y1="8" x2="18" y2="16"/>
+          </svg>
+        </button>
+        <button id="theme-toggle" class="btn-icon" title="切换主题">
+          <span class="moon-icon" id="theme-moon-icon"></span>
+          <span class="sun-icon" id="theme-sun-icon"></span>
+        </button>
         <span id="connection-status" class="status-indicator disconnected">已断开</span>
       </div>
     </header>
@@ -29,7 +61,10 @@
       <aside class="sidebar sessions-sidebar">
         <div class="sidebar-header">
           <h2>会话列表</h2>
-          <button id="new-session-btn" class="btn btn-primary">+ 新建</button>
+          <button id="new-session-btn" class="btn btn-primary">
+            <span class="btn-icon-sm" id="new-session-icon"></span>
+            新建
+          </button>
         </div>
         <div id="sessions-list" class="sessions-list">
           <!-- Sessions will be loaded here -->
@@ -39,20 +74,25 @@
       <!-- Center - Chat Area -->
       <section class="chat-area">
         <div class="chat-header">
-          <div>
+          <div class="chat-header-title">
             <h2 id="current-session-title">选择一个会话开始</h2>
             <span id="working-directory" class="working-dir"></span>
           </div>
           <div class="chat-header-actions">
-            <button id="debug-btn" class="btn btn-icon" title="调试详情">🔍</button>
+            <button id="debug-btn" class="btn btn-icon" title="调试详情">
+              <span id="debug-icon"></span>
+            </button>
           </div>
         </div>
         <div id="messages-container" class="messages-container">
           <!-- Messages will be loaded here -->
           <div class="welcome-message">
-            <h3>👑 欢迎使用 MonkAgents</h3>
+            <h3>
+              <span id="crown-icon" style="display: inline-flex; vertical-align: middle; margin-right: 8px;"></span>
+              欢迎使用 MonkAgents
+            </h3>
             <p>唐明皇陛下，选择或创建一个会话开始与智能体协作</p>
-            <p style="font-size: 0.875rem; color: #999; margin-top: 16px;">
+            <p style="font-size: 0.875rem; color: var(--on-surface-muted); margin-top: 16px;">
               提示：使用 @智能体名称 可以召唤特定智能体<br>
               例如：@孙悟空 写一个函数
             </p>
@@ -63,11 +103,12 @@
             <div class="input-container">
               <textarea id="message-input" placeholder="输入你的问题或任务... 使用 @ 召唤智能体" rows="3"></textarea>
               <button id="send-btn" class="btn-send" disabled data-tooltip="请输入你的问题">
-                <svg class="send-icon" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 4l-8 8h5v8h6v-8h5z"/>
+                <svg class="send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"/>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
                 </svg>
                 <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                  <rect x="6" y="6" width="12" height="12" rx="2"/>
                 </svg>
               </button>
               <!-- @ Mention Menu -->
@@ -97,7 +138,10 @@
     <main id="page-tasks" class="page">
       <div class="full-page-content">
         <div class="page-header">
-          <h1>📋 任务列表</h1>
+          <h1>
+            <span id="tasks-page-icon"></span>
+            任务列表
+          </h1>
           <div class="page-header-actions">
             <div class="filters">
               <select id="task-status-filter" class="filter-select">
@@ -112,7 +156,10 @@
                 <option value="">全部会话</option>
               </select>
             </div>
-            <button class="btn btn-secondary btn-close-page" data-page="chat">✕ 关闭</button>
+            <button class="btn btn-secondary btn-close-page" data-page="chat">
+              <span id="close-tasks-icon"></span>
+              关闭
+            </button>
           </div>
         </div>
         <div id="task-list" class="task-list">
@@ -125,10 +172,19 @@
     <main id="page-scheduled" class="page">
       <div class="full-page-content">
         <div class="page-header">
-          <h1>⏰ 定时任务</h1>
+          <h1>
+            <span id="scheduled-page-icon"></span>
+            定时任务
+          </h1>
           <div class="page-header-actions">
-            <button id="new-schedule-btn" class="btn btn-primary">+ 新建定时任务</button>
-            <button class="btn btn-secondary btn-close-page" data-page="chat">✕ 关闭</button>
+            <button id="new-schedule-btn" class="btn btn-primary">
+              <span class="btn-icon-sm" id="new-schedule-icon"></span>
+              新建定时任务
+            </button>
+            <button class="btn btn-secondary btn-close-page" data-page="chat">
+              <span id="close-scheduled-icon"></span>
+              关闭
+            </button>
           </div>
         </div>
         <div id="scheduled-list" class="scheduled-list">
@@ -141,8 +197,13 @@
     <div id="debug-page" class="modal hidden">
       <div class="modal-content" style="max-width: 800px; width: 90%;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h3>🔍 调试详情</h3>
-          <button id="close-debug-btn" class="btn btn-icon">✕</button>
+          <h3>
+            <span id="debug-modal-icon" style="display: inline-flex; vertical-align: middle; margin-right: 8px;"></span>
+            调试详情
+          </h3>
+          <button id="close-debug-btn" class="btn btn-icon">
+            <span id="close-debug-modal-icon"></span>
+          </button>
         </div>
         <div id="debug-content">
           <!-- Debug content will be loaded here -->
@@ -156,23 +217,30 @@
     <div class="modal-content">
       <div class="modal-header">
         <h3>新建会话</h3>
-        <button class="btn btn-icon modal-close-btn" data-modal="new-session-modal">✕</button>
+        <button class="btn btn-icon modal-close-btn" data-modal="new-session-modal">
+          <span class="close-modal-icon"></span>
+        </button>
       </div>
       <div class="form-group">
         <label for="session-title">会话标题</label>
         <div style="display: flex; gap: 8px; align-items: center;">
           <input type="text" id="session-title" placeholder="点击骰子随机生成标题" style="flex: 1;">
-          <button id="random-title-btn" class="btn btn-secondary" type="button" title="随机生成标题">🎲</button>
+          <button id="random-title-btn" class="btn btn-secondary" type="button" title="随机生成标题">
+            <span id="random-icon"></span>
+          </button>
         </div>
-        <small style="color: var(--text-muted); font-size: 0.75rem;">基于西游记九九八十一难生成</small>
+        <small style="color: var(--on-surface-muted); font-size: 0.75rem;">基于西游记九九八十一难生成</small>
       </div>
       <div class="form-group">
         <label for="working-dir-input">工作目录</label>
         <div style="display: flex; gap: 8px;">
           <input type="text" id="working-dir-input" placeholder="输入完整路径，如 D:\workspace\project" value="." style="flex: 1;">
-          <button id="browse-dir-btn" class="btn btn-secondary" type="button" title="浏览服务器目录">📁 浏览</button>
+          <button id="browse-dir-btn" class="btn btn-secondary" type="button" title="浏览服务器目录">
+            <span id="browse-icon"></span>
+            浏览
+          </button>
         </div>
-        <small style="color: var(--text-muted); font-size: 0.75rem;">请输入完整的绝对路径，智能体将在此目录下工作</small>
+        <small style="color: var(--on-surface-muted); font-size: 0.75rem;">请输入完整的绝对路径，智能体将在此目录下工作</small>
       </div>
       <div class="modal-actions">
         <button id="cancel-modal-btn" class="btn btn-secondary">取消</button>
@@ -186,7 +254,9 @@
     <div class="modal-content">
       <div class="modal-header">
         <h3>新建定时任务</h3>
-        <button class="btn btn-icon modal-close-btn" data-modal="new-schedule-modal">✕</button>
+        <button class="btn btn-icon modal-close-btn" data-modal="new-schedule-modal">
+          <span class="close-modal-icon"></span>
+        </button>
       </div>
       <div class="form-group">
         <label for="schedule-title">任务标题</label>
@@ -236,5 +306,28 @@
   <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
   <script type="module" src="./scripts/app.js"></script>
+
+  <!-- Mobile Sidebar Drawers -->
+  <div id="drawer-overlay" class="drawer-overlay"></div>
+  <aside id="sessions-drawer" class="sidebar-drawer sidebar sessions-sidebar">
+    <div class="sidebar-header">
+      <h2>会话列表</h2>
+      <button id="new-session-btn-drawer" class="btn btn-primary">
+        <span class="btn-icon-sm" id="new-session-icon-drawer"></span>
+        新建
+      </button>
+    </div>
+    <div id="sessions-list-drawer" class="sessions-list">
+      <!-- Sessions will be cloned here -->
+    </div>
+  </aside>
+  <aside id="agents-drawer" class="sidebar-drawer right agents-sidebar">
+    <div class="sidebar-header">
+      <h2>智能体</h2>
+    </div>
+    <div id="agents-list-drawer" class="agents-list">
+      <!-- Agents will be cloned here -->
+    </div>
+  </aside>
 </body>
 </html>
