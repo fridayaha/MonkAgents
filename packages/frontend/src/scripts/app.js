@@ -1862,10 +1862,10 @@ class App {
         </div>
 
         <div class="permission-actions">
-          <button class="btn-allow" onclick="app.handlePermissionAllow('${request.id}')">
+          <button class="btn btn-success btn-allow" onclick="app.handlePermissionAllow('${request.id}')">
             ✓ 允许
           </button>
-          <button class="btn-deny" onclick="app.handlePermissionDeny('${request.id}')">
+          <button class="btn btn-danger btn-deny" onclick="app.handlePermissionDeny('${request.id}')">
             ✗ 拒绝
           </button>
           <label class="remember-checkbox">
