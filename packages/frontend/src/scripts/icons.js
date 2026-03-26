@@ -233,7 +233,6 @@ export function createIcon(name, options = {}) {
   const icon = icons[name];
 
   if (!icon) {
-    console.warn(`Icon "${name}" not found`);
     return '';
   }
 

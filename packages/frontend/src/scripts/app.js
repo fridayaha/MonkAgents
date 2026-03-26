@@ -22,6 +22,9 @@ class App {
     this.tasks = [];
     this.scheduledTasks = [];
 
+    // DOM 元素缓存（在 initDomCache 中初始化）
+    this.dom = {};
+
     // Mention menu state
     this.mentionMenuVisible = false;
     this.mentionStartIndex = -1;
@@ -30,11 +33,10 @@ class App {
 
     // Loading state
     this.isLoadingShowing = false;
-    this.loadingAnimationInterval = null;
+    this.animationInterval = null; // 合并 loading 和 thinking 动画定时器
     this.loadingAgentId = null;
 
     // Thinking state
-    this.thinkingAnimationInterval = null;
     this.isThinkingShowing = false;
 
     // Generation state
@@ -45,11 +47,78 @@ class App {
     this.init();
   }
 
+  /**
+   * 缓存常用 DOM 元素引用，避免重复查询
+   */
+  initDomCache() {
+    this.dom = {
+      // 主要容器
+      messagesContainer: document.getElementById('messages-container'),
+      messageInput: document.getElementById('message-input'),
+      sendBtn: document.getElementById('send-btn'),
+
+      // 列表容器
+      agentsList: document.getElementById('agents-list'),
+      sessionsList: document.getElementById('sessions-list'),
+      taskList: document.getElementById('task-list'),
+      scheduledList: document.getElementById('scheduled-list'),
+
+      // 移动端抽屉
+      drawerOverlay: document.getElementById('drawer-overlay'),
+      sessionsDrawer: document.getElementById('sessions-drawer'),
+      agentsDrawer: document.getElementById('agents-drawer'),
+      mobileMenuBtn: document.getElementById('mobile-menu-btn'),
+      mobileAgentsBtn: document.getElementById('mobile-agents-btn'),
+      sessionsListDrawer: document.getElementById('sessions-list-drawer'),
+      agentsListDrawer: document.getElementById('agents-list-drawer'),
+
+      // 头部元素
+      connectionStatus: document.getElementById('connection-status'),
+      currentSessionTitle: document.getElementById('current-session-title'),
+      workingDirectory: document.getElementById('working-directory'),
+
+      // 过滤器
+      taskStatusFilter: document.getElementById('task-status-filter'),
+      taskSessionFilter: document.getElementById('task-session-filter'),
+
+      // 按钮元素
+      themeToggle: document.getElementById('theme-toggle'),
+      newSessionBtn: document.getElementById('new-session-btn'),
+      debugBtn: document.getElementById('debug-btn'),
+      closeDebugBtn: document.getElementById('close-debug-btn'),
+
+      // 模态框
+      debugPage: document.getElementById('debug-page'),
+      debugContent: document.getElementById('debug-content'),
+      newSessionModal: document.getElementById('new-session-modal'),
+      newScheduleModal: document.getElementById('new-schedule-modal'),
+      customDialogModal: document.getElementById('custom-dialog-modal'),
+      dialogTitle: document.getElementById('dialog-title'),
+      dialogMessage: document.getElementById('dialog-message'),
+      dialogConfirmBtn: document.getElementById('dialog-confirm-btn'),
+      dialogCancelBtn: document.getElementById('dialog-cancel-btn'),
+
+      // Mention 菜单
+      mentionMenu: document.getElementById('mention-menu'),
+
+      // 表单元素
+      sessionTitle: document.getElementById('session-title'),
+      workingDirInput: document.getElementById('working-dir-input'),
+      scheduleTitle: document.getElementById('schedule-title'),
+      scheduleDescription: document.getElementById('schedule-description'),
+      scheduleTime: document.getElementById('schedule-time'),
+      scheduleRepeat: document.getElementById('schedule-repeat'),
+    };
+  }
+
   async init() {
+    this.initDomCache(); // 首先缓存 DOM 引用
+    this.initMarked(); // 初始化 marked 配置（只执行一次）
     this.initTheme();
     this.initIcons();
     this.bindEvents();
     this.bindNavigation();
+    this.initEventDelegation(); // 初始化事件委托
     await this.loadAgents();
     await this.loadSessions();
     await this.loadTasks();
@@ -61,27 +130,45 @@ class App {
     this.updateSendButtonState();
   }
 
+  /**
+   * 初始化 marked.js 配置（只执行一次）
+   */
+  initMarked() {
+    if (typeof marked !== 'undefined') {
+      marked.setOptions({
+        breaks: true,
+        gfm: true,
+        highlight: (code, lang) => {
+          if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+            try {
+              return hljs.highlight(code, { language: lang }).value;
+            } catch (e) {
+              // Ignore highlight errors
+            }
+          }
+          return code;
+        }
+      });
+    }
+  }
+
   // ==================== Mobile Drawers ====================
 
   initMobileDrawers() {
-    const overlay = document.getElementById('drawer-overlay');
-    const sessionsDrawer = document.getElementById('sessions-drawer');
-    const agentsDrawer = document.getElementById('agents-drawer');
-    const menuBtn = document.getElementById('mobile-menu-btn');
-    const agentsBtn = document.getElementById('mobile-agents-btn');
+    const { drawerOverlay, mobileMenuBtn, mobileAgentsBtn } = this.dom;
 
     // Toggle sessions drawer
-    menuBtn?.addEventListener('click', () => {
+    mobileMenuBtn?.addEventListener('click', () => {
       this.toggleDrawer('sessions');
     });
 
     // Toggle agents drawer
-    agentsBtn?.addEventListener('click', () => {
+    mobileAgentsBtn?.addEventListener('click', () => {
       this.toggleDrawer('agents');
     });
 
     // Close on overlay click
-    overlay?.addEventListener('click', () => {
+    drawerOverlay?.addEventListener('click', () => {
       this.closeAllDrawers();
     });
 
@@ -94,16 +181,14 @@ class App {
   }
 
   toggleDrawer(type) {
-    const overlay = document.getElementById('drawer-overlay');
-    const sessionsDrawer = document.getElementById('sessions-drawer');
-    const agentsDrawer = document.getElementById('agents-drawer');
+    const { drawerOverlay, sessionsDrawer, agentsDrawer } = this.dom;
 
     if (type === 'sessions') {
       const isOpen = sessionsDrawer?.classList.contains('open');
       this.closeAllDrawers();
       if (!isOpen) {
         sessionsDrawer?.classList.add('open');
-        overlay?.classList.add('visible');
+        drawerOverlay?.classList.add('visible');
         this.syncDrawerContent('sessions');
       }
     } else if (type === 'agents') {
@@ -111,56 +196,106 @@ class App {
       this.closeAllDrawers();
       if (!isOpen) {
         agentsDrawer?.classList.add('open');
-        overlay?.classList.add('visible');
+        drawerOverlay?.classList.add('visible');
         this.syncDrawerContent('agents');
       }
     }
   }
 
   closeAllDrawers() {
-    const overlay = document.getElementById('drawer-overlay');
+    const { drawerOverlay } = this.dom;
     document.querySelectorAll('.sidebar-drawer').forEach(drawer => {
       drawer.classList.remove('open');
     });
-    overlay?.classList.remove('visible');
+    drawerOverlay?.classList.remove('visible');
   }
 
   syncDrawerContent(type) {
+    const { sessionsList, agentsList, sessionsListDrawer, agentsListDrawer, messageInput } = this.dom;
+
     if (type === 'sessions') {
-      const source = document.getElementById('sessions-list');
-      const target = document.getElementById('sessions-list-drawer');
-      if (source && target) {
-        target.innerHTML = source.innerHTML;
-        // Re-bind click events
-        target.querySelectorAll('.session-item').forEach(item => {
-          item.addEventListener('click', (e) => {
-            if (!e.target.classList.contains('session-delete')) {
-              this.selectSession(item.dataset.sessionId);
-              this.closeAllDrawers();
-            }
-          });
-        });
+      if (sessionsList && sessionsListDrawer) {
+        sessionsListDrawer.innerHTML = sessionsList.innerHTML;
+        // 使用事件委托，不需要重新绑定每个元素
       }
     } else if (type === 'agents') {
-      const source = document.getElementById('agents-list');
-      const target = document.getElementById('agents-list-drawer');
-      if (source && target) {
-        target.innerHTML = source.innerHTML;
-        // Re-bind click events for agent summoning
-        target.querySelectorAll('.agent-item').forEach(item => {
-          item.addEventListener('click', () => {
-            const agentId = item.dataset.agentId;
-            const agent = this.agents.find(a => a.id === agentId);
-            if (agent) {
-              const input = document.getElementById('message-input');
-              input.value = `@${agent.config.name} `;
-              input.focus();
-              this.updateSendButtonState();
-              this.closeAllDrawers();
-            }
-          });
-        });
+      if (agentsList && agentsListDrawer) {
+        agentsListDrawer.innerHTML = agentsList.innerHTML;
+        // 使用事件委托，不需要重新绑定每个元素
       }
+    }
+  }
+
+  // ==================== Event Delegation ====================
+
+  /**
+   * 初始化事件委托，避免重复绑定事件监听器
+   */
+  initEventDelegation() {
+    // 会话列表点击事件委托
+    this.dom.sessionsList?.addEventListener('click', (e) => {
+      const sessionItem = e.target.closest('.session-item');
+      const deleteBtn = e.target.closest('.session-delete');
+
+      if (deleteBtn) {
+        e.stopPropagation();
+        this.deleteSession(deleteBtn.dataset.sessionId);
+      } else if (sessionItem) {
+        this.selectSession(sessionItem.dataset.sessionId);
+      }
+    });
+
+    // 移动端会话抽屉点击事件委托
+    this.dom.sessionsListDrawer?.addEventListener('click', (e) => {
+      const sessionItem = e.target.closest('.session-item');
+      const deleteBtn = e.target.closest('.session-delete');
+
+      if (deleteBtn) {
+        e.stopPropagation();
+        this.deleteSession(deleteBtn.dataset.sessionId);
+      } else if (sessionItem) {
+        this.selectSession(sessionItem.dataset.sessionId);
+        this.closeAllDrawers();
+      }
+    });
+
+    // 智能体列表点击事件委托
+    this.dom.agentsList?.addEventListener('click', (e) => {
+      const agentItem = e.target.closest('.agent-item');
+      if (agentItem) {
+        this.handleAgentClick(agentItem.dataset.agentId);
+      }
+    });
+
+    // 移动端智能体抽屉点击事件委托
+    this.dom.agentsListDrawer?.addEventListener('click', (e) => {
+      const agentItem = e.target.closest('.agent-item');
+      if (agentItem) {
+        this.handleAgentClick(agentItem.dataset.agentId);
+        this.closeAllDrawers();
+      }
+    });
+
+    // 任务列表点击事件委托
+    this.dom.taskList?.addEventListener('click', (e) => {
+      const taskCard = e.target.closest('.task-card');
+      if (taskCard) {
+        this.showTaskDetail(taskCard.dataset.taskId);
+      }
+    });
+  }
+
+  /**
+   * 处理智能体点击（从侧边栏召唤）
+   */
+  handleAgentClick(agentId) {
+    const agent = this.agents.find(a => a.id === agentId);
+    if (agent) {
+      const input = this.dom.messageInput;
+      const currentValue = input.value.trim();
+      input.value = currentValue ? `${currentValue} @${agent.config.name} ` : `@${agent.config.name} `;
+      input.focus();
+      this.updateSendButtonState();
     }
   }
 
@@ -277,24 +412,30 @@ class App {
   // ==================== Event Binding ====================
 
   bindEvents() {
+    const {
+      themeToggle, newSessionBtn, sendBtn, messageInput,
+      debugBtn, closeDebugBtn, taskStatusFilter, taskSessionFilter,
+      newScheduleBtn, newSessionModal, debugPage
+    } = this.dom;
+
     // Theme toggle
-    document.getElementById('theme-toggle')?.addEventListener('click', () => {
+    themeToggle?.addEventListener('click', () => {
       this.toggleTheme();
     });
 
     // New session button
-    document.getElementById('new-session-btn').addEventListener('click', () => {
+    newSessionBtn?.addEventListener('click', () => {
       this.showModal('new-session-modal');
       // Auto-generate random title when opening modal
       this.generateRandomTitle();
     });
 
     // Modal buttons
-    document.getElementById('cancel-modal-btn').addEventListener('click', () => {
+    document.getElementById('cancel-modal-btn')?.addEventListener('click', () => {
       this.hideModal('new-session-modal');
     });
 
-    document.getElementById('create-session-btn').addEventListener('click', () => {
+    document.getElementById('create-session-btn')?.addEventListener('click', () => {
       this.createSession();
     });
 
@@ -309,11 +450,11 @@ class App {
     });
 
     // Send message
-    document.getElementById('send-btn').addEventListener('click', () => {
+    sendBtn?.addEventListener('click', () => {
       this.sendMessage();
     });
 
-    document.getElementById('message-input').addEventListener('keydown', (e) => {
+    messageInput?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this.sendMessage();
@@ -321,7 +462,7 @@ class App {
     });
 
     // Update send button state based on input content
-    document.getElementById('message-input').addEventListener('input', () => {
+    messageInput?.addEventListener('input', () => {
       this.updateSendButtonState();
     });
 
@@ -335,20 +476,20 @@ class App {
     });
 
     // Debug button
-    document.getElementById('debug-btn')?.addEventListener('click', () => {
+    debugBtn?.addEventListener('click', () => {
       this.showDebugPage();
     });
 
-    document.getElementById('close-debug-btn')?.addEventListener('click', () => {
+    closeDebugBtn?.addEventListener('click', () => {
       this.hideModal('debug-page');
     });
 
     // Task filters
-    document.getElementById('task-status-filter')?.addEventListener('change', () => {
+    taskStatusFilter?.addEventListener('change', () => {
       this.loadTasks();
     });
 
-    document.getElementById('task-session-filter')?.addEventListener('change', () => {
+    taskSessionFilter?.addEventListener('change', () => {
       this.loadTasks();
     });
 
@@ -400,7 +541,7 @@ class App {
       this.agents = await api.getAgents();
       this.renderAgents();
     } catch (error) {
-      console.error('Failed to load agents:', error);
+      // Failed to load agents
     }
   }
 
@@ -410,14 +551,15 @@ class App {
       this.renderSessions();
       this.updateSessionFilter();
     } catch (error) {
-      console.error('Failed to load sessions:', error);
+      // Failed to load sessions
     }
   }
 
   async loadTasks() {
     try {
-      const statusFilter = document.getElementById('task-status-filter')?.value || '';
-      const sessionFilter = document.getElementById('task-session-filter')?.value || '';
+      const { taskStatusFilter, taskSessionFilter } = this.dom;
+      const statusFilter = taskStatusFilter?.value || '';
+      const sessionFilter = taskSessionFilter?.value || '';
 
       let endpoint = '/tasks';
       const params = [];
@@ -428,7 +570,6 @@ class App {
       this.tasks = await api.request(endpoint);
       this.renderTasks();
     } catch (error) {
-      console.error('Failed to load tasks:', error);
       this.renderEmptyState('task-list', 'tasks', '暂无任务', '创建新会话开始任务');
     }
   }
@@ -438,7 +579,6 @@ class App {
       this.scheduledTasks = await api.request('/scheduled-tasks');
       this.renderScheduledTasks();
     } catch (error) {
-      console.error('Failed to load scheduled tasks:', error);
       this.renderEmptyState('scheduled-list', 'scheduled', '暂无定时任务', '点击右上角按钮创建定时任务');
     }
   }
@@ -462,7 +602,7 @@ class App {
   }
 
   renderAgents() {
-    const container = document.getElementById('agents-list');
+    const container = this.dom.agentsList;
     if (!container) return;
 
     container.innerHTML = this.agents.map(agent => {
@@ -489,26 +629,11 @@ class App {
         </div>
       `;
     }).join('');
-
-    // Bind click events for agent summoning
-    container.querySelectorAll('.agent-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const agentId = item.dataset.agentId;
-        const agent = this.agents.find(a => a.id === agentId);
-        if (agent) {
-          const input = document.getElementById('message-input');
-          const currentValue = input.value.trim();
-          // Add @mention for the agent
-          input.value = currentValue ? `${currentValue} @${agent.config.name} ` : `@${agent.config.name} `;
-          input.focus();
-          this.updateSendButtonState();
-        }
-      });
-    });
+    // 事件委托在 initEventDelegation 中处理，无需单独绑定
   }
 
   renderSessions() {
-    const container = document.getElementById('sessions-list');
+    const container = this.dom.sessionsList;
     if (!container) return;
 
     if (this.sessions.length === 0) {
@@ -533,27 +658,11 @@ class App {
         <button class="session-delete" data-session-id="${session.id}" title="删除会话">${deleteIcon}</button>
       </div>
     `).join('');
-
-    // Bind click events
-    container.querySelectorAll('.session-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        if (!e.target.classList.contains('session-delete')) {
-          this.selectSession(item.dataset.sessionId);
-        }
-      });
-    });
-
-    // Bind delete events
-    container.querySelectorAll('.session-delete').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.deleteSession(btn.dataset.sessionId);
-      });
-    });
+    // 事件委托在 initEventDelegation 中处理，无需单独绑定
   }
 
   renderMessages() {
-    const container = document.getElementById('messages-container');
+    const container = this.dom.messagesContainer;
 
     if (!this.currentSession?.messages?.length) {
       container.innerHTML = `
@@ -611,10 +720,10 @@ class App {
       const loading = document.getElementById('loading-indicator');
       if (loading) {
         loading.remove();
-        const container = document.getElementById('messages-container');
+        const container = this.dom.messagesContainer;
         if (container) {
           this.appendLoadingIndicator(container);
-          this.startLoadingAnimation();
+          this.startAnimation('loading');
         }
       }
     }
@@ -878,7 +987,7 @@ class App {
   }
 
   renderTasks() {
-    const container = document.getElementById('task-list');
+    const container = this.dom.taskList;
     if (!container) return;
 
     if (this.tasks.length === 0) {
@@ -901,17 +1010,11 @@ class App {
         </div>
       </div>
     `}).join('');
-
-    // Bind click events
-    container.querySelectorAll('.task-card').forEach(card => {
-      card.addEventListener('click', () => {
-        this.showTaskDetail(card.dataset.taskId);
-      });
-    });
+    // 事件委托在 initEventDelegation 中处理，无需单独绑定
   }
 
   renderScheduledTasks() {
-    const container = document.getElementById('scheduled-list');
+    const container = this.dom.scheduledList;
     if (!container) return;
 
     if (this.scheduledTasks.length === 0) {
@@ -942,7 +1045,8 @@ class App {
   }
 
   renderEmptyState(containerId, iconName, title, description) {
-    const container = document.getElementById(containerId);
+    // 对于已缓存的容器直接使用缓存
+    const container = this.dom[containerId] || document.getElementById(containerId);
     if (!container) return;
 
     const icon = getIcon(iconName) || '';
@@ -970,13 +1074,14 @@ class App {
         wsClient.join(sessionId);
       }
     } catch (error) {
-      console.error('Failed to load session:', error);
+      // Failed to load session
     }
   }
 
   async createSession() {
-    const title = document.getElementById('session-title').value.trim();
-    const workingDir = document.getElementById('working-dir-input').value.trim() || '.';
+    const { sessionTitle, workingDirInput, newSessionModal } = this.dom;
+    const title = sessionTitle?.value.trim() || '';
+    const workingDir = workingDirInput?.value.trim() || '.';
 
     try {
       const session = await api.createSession({
@@ -988,9 +1093,8 @@ class App {
       this.renderSessions();
       this.selectSession(session.id);
       this.hideModal('new-session-modal');
-      document.getElementById('session-title').value = '';
+      if (sessionTitle) sessionTitle.value = '';
     } catch (error) {
-      console.error('Failed to create session:', error);
       this.showAlert('创建会话失败', '错误');
     }
   }
@@ -1006,7 +1110,7 @@ class App {
       if (this.currentSession?.id === sessionId) {
         this.currentSession = null;
         this.updateChatHeader();
-        document.getElementById('messages-container').innerHTML = `
+        this.dom.messagesContainer.innerHTML = `
           <div class="welcome-message">
             <h3>👑 欢迎使用 MonkAgents</h3>
             <p>唐太宗陛下，选择或创建一个会话开始与智能体协作</p>
@@ -1016,24 +1120,26 @@ class App {
 
       this.renderSessions();
     } catch (error) {
-      console.error('Failed to delete session:', error);
       this.showAlert('删除会话失败', '错误');
     }
   }
 
   updateChatHeader() {
-    document.getElementById('current-session-title').textContent =
-      this.currentSession?.title || '未命名会话';
-    const workingDirEl = document.getElementById('working-directory');
-    if (this.currentSession?.workingDirectory) {
-      workingDirEl.innerHTML = `${getIcon('browse')}<span>${this.currentSession.workingDirectory}</span>`;
-    } else {
-      workingDirEl.innerHTML = '';
+    const { currentSessionTitle, workingDirectory } = this.dom;
+    if (currentSessionTitle) {
+      currentSessionTitle.textContent = this.currentSession?.title || '未命名会话';
+    }
+    if (workingDirectory) {
+      if (this.currentSession?.workingDirectory) {
+        workingDirectory.innerHTML = `${getIcon('browse')}<span>${this.currentSession.workingDirectory}</span>`;
+      } else {
+        workingDirectory.innerHTML = '';
+      }
     }
   }
 
   updateSessionFilter() {
-    const filter = document.getElementById('task-session-filter');
+    const filter = this.dom.taskSessionFilter;
     if (!filter) return;
 
     filter.innerHTML = '<option value="">全部会话</option>' +
@@ -1049,8 +1155,8 @@ class App {
       return;
     }
 
-    const input = document.getElementById('message-input');
-    const content = input.value.trim();
+    const { messageInput } = this.dom;
+    const content = messageInput?.value.trim() || '';
 
     if (!content) {
       return;
@@ -1062,7 +1168,7 @@ class App {
     }
 
     // Clear input
-    input.value = '';
+    if (messageInput) messageInput.value = '';
 
     // Update button state (will be disabled since input is empty)
     this.updateSendButtonState();
@@ -1114,7 +1220,6 @@ class App {
     this.isCancelled = true;
 
     if (this.currentTaskId) {
-      console.log('Cancelling task:', this.currentTaskId);
       wsClient.cancelTask(this.currentTaskId);
     }
 
@@ -1142,8 +1247,7 @@ class App {
    * Update send button state based on input content and generation state
    */
   updateSendButtonState() {
-    const sendBtn = document.getElementById('send-btn');
-    const input = document.getElementById('message-input');
+    const { sendBtn, messageInput } = this.dom;
 
     if (!sendBtn) return;
 
@@ -1157,15 +1261,46 @@ class App {
       sendBtn.classList.remove('is-generating');
 
       // Disable if input is empty
-      const content = input?.value.trim() || '';
+      const content = messageInput?.value.trim() || '';
       sendBtn.disabled = content.length === 0;
       sendBtn.dataset.tooltip = content.length === 0 ? '请输入你的问题' : '发送';
     }
   }
 
+  // ==================== Unified Animation System ====================
+
+  /**
+   * 开始动画（统一处理 loading 和 thinking）
+   * @param {string} type - 'loading' 或 'thinking'
+   */
+  startAnimation(type) {
+    this.stopAnimation(); // Clear any existing
+    let dotCount = 0;
+    this.animationInterval = setInterval(() => {
+      const dots = document.querySelector(`#${type}-indicator .${type}-dots`);
+      if (dots) {
+        dotCount = (dotCount % 3) + 1;
+        dots.textContent = '.'.repeat(dotCount);
+      } else {
+        // Element no longer exists, stop animation
+        this.stopAnimation();
+      }
+    }, 500);
+  }
+
+  /**
+   * 停止动画
+   */
+  stopAnimation() {
+    if (this.animationInterval) {
+      clearInterval(this.animationInterval);
+      this.animationInterval = null;
+    }
+  }
+
   // Loading indicator with animated dots
   showLoadingIndicator() {
-    const container = document.getElementById('messages-container');
+    const container = this.dom.messagesContainer;
     if (!container) return;
 
     // Remove existing loading indicator if any
@@ -1181,7 +1316,7 @@ class App {
     container.scrollTop = container.scrollHeight;
 
     // Start animated dots
-    this.startLoadingAnimation();
+    this.startAnimation('loading');
   }
 
   hideLoadingIndicator() {
@@ -1190,25 +1325,9 @@ class App {
     if (loading) {
       loading.remove();
     }
-    this.stopLoadingAnimation();
-  }
-
-  startLoadingAnimation() {
-    this.stopLoadingAnimation(); // Clear any existing
-    let dotCount = 0;
-    this.loadingAnimationInterval = setInterval(() => {
-      const dots = document.querySelector('#loading-indicator .loading-dots');
-      if (dots) {
-        dotCount = (dotCount % 3) + 1;
-        dots.textContent = '.'.repeat(dotCount);
-      }
-    }, 500);
-  }
-
-  stopLoadingAnimation() {
-    if (this.loadingAnimationInterval) {
-      clearInterval(this.loadingAnimationInterval);
-      this.loadingAnimationInterval = null;
+    // 只有当没有 thinking 时才停止动画
+    if (!this.isThinkingShowing) {
+      this.stopAnimation();
     }
   }
 
@@ -1217,7 +1336,7 @@ class App {
     // Already showing, don't recreate
     if (this.isThinkingShowing) return;
 
-    const container = document.getElementById('messages-container');
+    const container = this.dom.messagesContainer;
     if (!container) return;
 
     // Use the same simple style as loading indicator
@@ -1236,7 +1355,7 @@ class App {
     container.scrollTop = container.scrollHeight;
 
     // Start animated dots
-    this.startThinkingAnimation();
+    this.startAnimation('thinking');
   }
 
   hideThinkingIndicator() {
@@ -1245,25 +1364,9 @@ class App {
     if (thinking) {
       thinking.remove();
     }
-    this.stopThinkingAnimation();
-  }
-
-  startThinkingAnimation() {
-    this.stopThinkingAnimation(); // Clear any existing
-    let dotCount = 0;
-    this.thinkingAnimationInterval = setInterval(() => {
-      const dots = document.querySelector('#thinking-indicator .thinking-dots');
-      if (dots) {
-        dotCount = (dotCount % 3) + 1;
-        dots.textContent = '.'.repeat(dotCount);
-      }
-    }, 500);
-  }
-
-  stopThinkingAnimation() {
-    if (this.thinkingAnimationInterval) {
-      clearInterval(this.thinkingAnimationInterval);
-      this.thinkingAnimationInterval = null;
+    // 只有当没有 loading 时才停止动画
+    if (!this.isLoadingShowing) {
+      this.stopAnimation();
     }
   }
 
@@ -1311,10 +1414,6 @@ class App {
 
     // Handle thinking status messages - show/hide "正在思考..." indicator
     if (message.type === 'thinking' && message.metadata?.isThinking) {
-      console.log('Thinking message received:', {
-        senderName: message.senderName,
-        isComplete: message.metadata.isComplete
-      });
       if (message.metadata.isComplete) {
         // Thinking complete, hide the indicator
         this.hideThinkingIndicator();
@@ -1416,7 +1515,7 @@ class App {
     }
 
     // Scroll to bottom
-    const container = document.getElementById('messages-container');
+    const container = this.dom.messagesContainer;
     if (container) {
       container.scrollTop = container.scrollHeight;
     }
@@ -1431,7 +1530,7 @@ class App {
    * Append a single message to DOM without re-rendering everything
    */
   appendMessageToDOM(message) {
-    const container = document.getElementById('messages-container');
+    const container = this.dom.messagesContainer;
     if (!container) return;
 
     // Remove welcome message if present
@@ -1473,7 +1572,7 @@ class App {
     }
 
     // Scroll to bottom
-    const container = document.getElementById('messages-container');
+    const container = this.dom.messagesContainer;
     if (container) {
       container.scrollTop = container.scrollHeight;
     }
@@ -1543,10 +1642,11 @@ class App {
   // ==================== Scheduled Tasks ====================
 
   async createScheduledTask() {
-    const title = document.getElementById('schedule-title').value.trim();
-    const description = document.getElementById('schedule-description').value.trim();
-    const time = document.getElementById('schedule-time').value;
-    const repeat = document.getElementById('schedule-repeat').value;
+    const { scheduleTitle, scheduleDescription, scheduleTime, scheduleRepeat } = this.dom;
+    const title = scheduleTitle?.value.trim() || '';
+    const description = scheduleDescription?.value.trim() || '';
+    const time = scheduleTime?.value || '';
+    const repeat = scheduleRepeat?.value || 'once';
 
     if (!title || !time) {
       this.showAlert('请填写任务标题和执行时间', '提示');
@@ -1569,10 +1669,9 @@ class App {
       this.loadScheduledTasks();
 
       // Clear form
-      document.getElementById('schedule-title').value = '';
-      document.getElementById('schedule-description').value = '';
+      if (scheduleTitle) scheduleTitle.value = '';
+      if (scheduleDescription) scheduleDescription.value = '';
     } catch (error) {
-      console.error('Failed to create scheduled task:', error);
       this.showAlert('创建定时任务失败', '错误');
     }
   }
@@ -1585,7 +1684,7 @@ class App {
       await api.request(`/api/scheduled-tasks/${taskId}`, { method: 'DELETE' });
       this.loadScheduledTasks();
     } catch (error) {
-      console.error('Failed to delete scheduled task:', error);
+      // Failed to delete scheduled task
     }
   }
 
@@ -1594,7 +1693,6 @@ class App {
       await api.request(`/api/scheduled-tasks/${taskId}/run`, { method: 'POST' });
       this.showAlert('任务已触发执行', '成功');
     } catch (error) {
-      console.error('Failed to run scheduled task:', error);
       this.showAlert('执行失败', '错误');
     }
   }
@@ -1642,12 +1740,11 @@ class App {
     `;
 
     // Update modal content
-    const modal = document.getElementById('debug-page');
-    const modalContent = modal?.querySelector('.modal-content');
+    const { debugPage, debugContent } = this.dom;
+    const modalContent = debugPage?.querySelector('.modal-content');
     if (modalContent) {
       const titleEl = modalContent.querySelector('h3');
       if (titleEl) titleEl.innerHTML = `${getIcon('tasks')} 任务详情`;
-      const debugContent = document.getElementById('debug-content');
       if (debugContent) {
         debugContent.innerHTML = content;
       }
@@ -1669,16 +1766,15 @@ class App {
       this.renderDebugInfo(debugInfo);
       this.showModal('debug-page');
     } catch (error) {
-      console.error('Failed to load debug info:', error);
       this.showAlert('获取调试信息失败', '错误');
     }
   }
 
   renderDebugInfo(info) {
-    const container = document.getElementById('debug-content');
-    if (!container) return;
+    const { debugContent } = this.dom;
+    if (!debugContent) return;
 
-    container.innerHTML = `
+    debugContent.innerHTML = `
       <div class="debug-section">
         <h3>${getIcon('info')} 指标统计</h3>
         <div class="debug-metrics">
@@ -1726,20 +1822,20 @@ class App {
     wsClient.connect();
 
     wsClient.on('connection', ({ connected }) => {
-      const statusEl = document.getElementById('connection-status');
+      const { connectionStatus } = this.dom;
       if (connected) {
-        statusEl.textContent = '已连接';
-        statusEl.classList.remove('disconnected');
-        statusEl.classList.add('connected');
+        connectionStatus.textContent = '已连接';
+        connectionStatus.classList.remove('disconnected');
+        connectionStatus.classList.add('connected');
 
         // Rejoin current session if any
         if (this.currentSession) {
           wsClient.join(this.currentSession.id);
         }
       } else {
-        statusEl.textContent = '已断开';
-        statusEl.classList.remove('connected');
-        statusEl.classList.add('disconnected');
+        connectionStatus.textContent = '已断开';
+        connectionStatus.classList.remove('connected');
+        connectionStatus.classList.add('disconnected');
       }
     });
 
@@ -1778,7 +1874,6 @@ class App {
     });
 
     wsClient.on('error', (error) => {
-      console.error('WebSocket error:', error);
       this.addMessage({
         id: `error-${Date.now()}`,
         sessionId: this.currentSession?.id,
@@ -1793,8 +1888,6 @@ class App {
 
     // Handle session history from Redis
     wsClient.on('session_history', ({ sessionId, messages, count }) => {
-      console.log(`Received ${count} history messages for session ${sessionId}`);
-
       // Only load history if this is the current session
       if (this.currentSession?.id === sessionId) {
         // Initialize messages array if needed
@@ -1826,8 +1919,6 @@ class App {
    * Handle permission request from server
    */
   handlePermissionRequest(request) {
-    console.log('Permission request received:', request);
-
     // Create permission card and add to messages
     const permissionMessage = {
       id: `permission-${request.id}`,
@@ -2093,6 +2184,8 @@ class App {
       if (streamMsg) {
         // Append content to existing message
         streamMsg.content += chunk.content;
+        // 使用增量 DOM 更新，而不是完全重新渲染
+        this.updateStreamingMessageDOM(streamId, streamMsg.content, false);
       } else {
         // Create new streaming message
         streamMsg = {
@@ -2103,16 +2196,16 @@ class App {
           senderName: this.getAgentName(chunk.agentId) || '智能体',
           type: 'text',
           content: chunk.content,
+          metadata: { isStreaming: true },
           createdAt: new Date(),
         };
         this.currentSession.messages.push(streamMsg);
+        // 对于新消息，使用增量添加
+        this.appendMessageToDOM(streamMsg);
       }
 
-      // Re-render messages
-      this.renderMessages();
-
       // Scroll to bottom
-      const container = document.getElementById('messages-container');
+      const container = this.dom.messagesContainer;
       if (container) {
         container.scrollTop = container.scrollHeight;
       }
@@ -2138,24 +2231,22 @@ class App {
    */
   async showAlert(message, title = '提示') {
     return new Promise((resolve) => {
-      const modal = document.getElementById('custom-dialog-modal');
-      const titleEl = document.getElementById('dialog-title');
-      const messageEl = document.getElementById('dialog-message');
-      const confirmBtn = document.getElementById('dialog-confirm-btn');
-      const cancelBtn = document.getElementById('dialog-cancel-btn');
+      const { customDialogModal, dialogTitle, dialogMessage, dialogConfirmBtn, dialogCancelBtn } = this.dom;
 
-      titleEl.textContent = title;
-      messageEl.textContent = message;
-      cancelBtn.classList.add('hidden');
-      confirmBtn.textContent = '确定';
+      if (!customDialogModal) return resolve(false);
+
+      dialogTitle.textContent = title;
+      dialogMessage.textContent = message;
+      dialogCancelBtn.classList.add('hidden');
+      dialogConfirmBtn.textContent = '确定';
 
       const handleConfirm = () => {
         this.hideModal('custom-dialog-modal');
-        confirmBtn.removeEventListener('click', handleConfirm);
+        dialogConfirmBtn.removeEventListener('click', handleConfirm);
         resolve(true);
       };
 
-      confirmBtn.addEventListener('click', handleConfirm);
+      dialogConfirmBtn.addEventListener('click', handleConfirm);
       this.showModal('custom-dialog-modal');
     });
   }
@@ -2168,34 +2259,32 @@ class App {
    */
   async showConfirm(message, title = '确认') {
     return new Promise((resolve) => {
-      const modal = document.getElementById('custom-dialog-modal');
-      const titleEl = document.getElementById('dialog-title');
-      const messageEl = document.getElementById('dialog-message');
-      const confirmBtn = document.getElementById('dialog-confirm-btn');
-      const cancelBtn = document.getElementById('dialog-cancel-btn');
+      const { customDialogModal, dialogTitle, dialogMessage, dialogConfirmBtn, dialogCancelBtn } = this.dom;
 
-      titleEl.textContent = title;
-      messageEl.textContent = message;
-      cancelBtn.classList.remove('hidden');
-      confirmBtn.textContent = '确定';
-      cancelBtn.textContent = '取消';
+      if (!customDialogModal) return resolve(false);
+
+      dialogTitle.textContent = title;
+      dialogMessage.textContent = message;
+      dialogCancelBtn.classList.remove('hidden');
+      dialogConfirmBtn.textContent = '确定';
+      dialogCancelBtn.textContent = '取消';
 
       const handleConfirm = () => {
         this.hideModal('custom-dialog-modal');
-        confirmBtn.removeEventListener('click', handleConfirm);
-        cancelBtn.removeEventListener('click', handleCancel);
+        dialogConfirmBtn.removeEventListener('click', handleConfirm);
+        dialogCancelBtn.removeEventListener('click', handleCancel);
         resolve(true);
       };
 
       const handleCancel = () => {
         this.hideModal('custom-dialog-modal');
-        confirmBtn.removeEventListener('click', handleConfirm);
-        cancelBtn.removeEventListener('click', handleCancel);
+        dialogConfirmBtn.removeEventListener('click', handleConfirm);
+        dialogCancelBtn.removeEventListener('click', handleCancel);
         resolve(false);
       };
 
-      confirmBtn.addEventListener('click', handleConfirm);
-      cancelBtn.addEventListener('click', handleCancel);
+      dialogConfirmBtn.addEventListener('click', handleConfirm);
+      dialogCancelBtn.addEventListener('click', handleCancel);
       this.showModal('custom-dialog-modal');
     });
   }
@@ -2323,28 +2412,11 @@ class App {
 
     if (!cleaned) return '';
 
-    // Use marked.js for markdown rendering if available
+    // Use marked.js for markdown rendering if available (已在 initMarked 中配置)
     if (typeof marked !== 'undefined') {
       try {
-        // Configure marked
-        marked.setOptions({
-          breaks: true,
-          gfm: true,
-          highlight: (code, lang) => {
-            if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
-              try {
-                return hljs.highlight(code, { language: lang }).value;
-              } catch (e) {
-                // Ignore highlight errors
-              }
-            }
-            return code;
-          }
-        });
-
         return marked.parse(cleaned);
       } catch (e) {
-        console.error('Markdown parse error:', e);
         // Fall through to basic formatting
       }
     }
@@ -2367,10 +2439,19 @@ class App {
     return formatted;
   }
 
+  /**
+   * HTML 转义 - 使用字符串替换避免创建临时 DOM 元素
+   */
   escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    if (!text) return '';
+    const htmlEscapes = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    };
+    return String(text).replace(/[&<>"']/g, char => htmlEscapes[char]);
   }
 
   formatTime(date) {
@@ -2396,16 +2477,15 @@ class App {
   // ==================== Mention Menu ====================
 
   initMentionMenu() {
-    const input = document.getElementById('message-input');
-    const mentionMenu = document.getElementById('mention-menu');
+    const { messageInput, mentionMenu } = this.dom;
 
-    if (!input || !mentionMenu) return;
+    if (!messageInput || !mentionMenu) return;
 
-    input.addEventListener('input', (e) => {
+    messageInput.addEventListener('input', (e) => {
       this.handleMentionInput(e);
     });
 
-    input.addEventListener('keydown', (e) => {
+    messageInput.addEventListener('keydown', (e) => {
       if (this.mentionMenuVisible) {
         this.handleMentionKeydown(e);
       }
@@ -2478,7 +2558,7 @@ class App {
   }
 
   showMentionMenu() {
-    const mentionMenu = document.getElementById('mention-menu');
+    const { mentionMenu } = this.dom;
     const mentionList = mentionMenu?.querySelector('.mention-menu-list');
 
     if (!mentionMenu || !mentionList) return;
@@ -2528,7 +2608,7 @@ class App {
   }
 
   hideMentionMenu() {
-    const mentionMenu = document.getElementById('mention-menu');
+    const { mentionMenu } = this.dom;
     if (mentionMenu) {
       mentionMenu.classList.add('hidden');
     }
@@ -2556,19 +2636,19 @@ class App {
     const agent = this.agents.find(a => a.id === agentId);
     const agentName = agent?.config?.name || agentId;
 
-    const input = document.getElementById('message-input');
-    const value = input.value;
+    const { messageInput } = this.dom;
+    const value = messageInput?.value || '';
 
     // Replace @query with @agentName
     const beforeMention = value.substring(0, this.mentionStartIndex);
-    const afterCursor = value.substring(input.selectionStart);
+    const afterCursor = value.substring(messageInput.selectionStart);
 
-    input.value = beforeMention + `@${agentName} ` + afterCursor;
+    messageInput.value = beforeMention + `@${agentName} ` + afterCursor;
 
     // Set cursor position after the mention
     const newPos = beforeMention.length + agentName.length + 2;
-    input.setSelectionRange(newPos, newPos);
-    input.focus();
+    messageInput.setSelectionRange(newPos, newPos);
+    messageInput.focus();
 
     this.hideMentionMenu();
   }
@@ -2576,10 +2656,10 @@ class App {
   // ==================== Random Title Generation ====================
 
   async generateRandomTitle() {
-    const titleInput = document.getElementById('session-title');
+    const { sessionTitle } = this.dom;
     const randomBtn = document.getElementById('random-title-btn');
 
-    if (!titleInput || !randomBtn) return;
+    if (!sessionTitle || !randomBtn) return;
 
     // Show loading state
     randomBtn.disabled = true;
@@ -2591,10 +2671,9 @@ class App {
       });
 
       if (response && response.title) {
-        titleInput.value = response.title;
+        sessionTitle.value = response.title;
       }
     } catch (error) {
-      console.error('Failed to generate random title:', error);
       // Fallback: use a preset title from 西游记
       const fallbackTitles = [
         '三打白骨精',
@@ -2614,7 +2693,7 @@ class App {
         '比丘国救儿',
       ];
       const randomTitle = fallbackTitles[Math.floor(Math.random() * fallbackTitles.length)];
-      titleInput.value = randomTitle;
+      sessionTitle.value = randomTitle;
     } finally {
       randomBtn.disabled = false;
       randomBtn.textContent = '🎲';
@@ -2624,8 +2703,8 @@ class App {
   // ==================== Directory Browser ====================
 
   async showDirectoryBrowser() {
-    const input = document.getElementById('working-dir-input');
-    const currentPath = input?.value || '';
+    const { workingDirInput } = this.dom;
+    const currentPath = workingDirInput?.value || '';
 
     // Create modal for directory browsing
     const modal = document.createElement('div');
@@ -2719,8 +2798,8 @@ class App {
     });
 
     modal.querySelector('#dir-select-btn').addEventListener('click', () => {
-      if (input) {
-        input.value = selectedPath;
+      if (workingDirInput) {
+        workingDirInput.value = selectedPath;
       }
       modal.remove();
     });
