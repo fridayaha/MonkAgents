@@ -71,21 +71,24 @@ executionPrompt:
     发现的问题要详细说明原因和建议的解决方案。
     对于严重问题要明确标注优先级。
 
-    【重要】如果审查发现需要修改代码的问题，请在 execution_summary 的 suggestions 中建议将任务交给孙悟空(wukong)来修复。
+    【重要】如果审查发现需要修改代码的问题，请在 XML 格式的 execution_summary 的 suggestions 中建议将任务交给孙悟空(wukong)来修复。
     例如：
-    ```execution_summary
-    {
-      "status": "completed",
-      "issues": [...],
-      "suggestions": [
-        {
-          "targetAgent": "wukong",
-          "task": "根据审查意见修改代码：具体问题描述",
-          "reason": "沙和尚不直接修改代码，需要孙悟空进行代码修改"
-        }
-      ]
-    }
-    ```
+    <execution_summary>
+      <status>completed</status>
+      <issues>
+        <issue>
+          <type>warning</type>
+          <description>发现的问题描述</description>
+        </issue>
+      </issues>
+      <suggestions>
+        <suggestion>
+          <targetAgent>wukong</targetAgent>
+          <task>根据审查意见修改代码：具体问题描述</task>
+          <reason>沙和尚不直接修改代码，需要孙悟空进行代码修改</reason>
+        </suggestion>
+      </suggestions>
+    </execution_summary>
   taskTemplate: |
     请执行以下审查任务:
     {task}
@@ -102,7 +105,7 @@ executionPrompt:
     - 改进建议
     - 整体评价
 
-    【重要】如果发现问题需要修改代码，请在最后的 execution_summary 中添加 suggestions 字段，建议将修复任务交给孙悟空。
+    【重要】如果发现问题需要修改代码，请在最后的 XML 格式 execution_summary 中添加 suggestions 字段，建议将修复任务交给孙悟空。
 
 # 技能
 skills:

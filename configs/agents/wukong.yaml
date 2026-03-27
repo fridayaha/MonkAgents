@@ -91,29 +91,39 @@ executionPrompt:
   additionalInstructions: |
     执行任务时请遵循以下原则：
     1. 收到任务后立即执行，使用工具完成实际操作
-    2. 执行完成后必须输出 execution_summary 代码块，记录你的产出
+    2. 执行完成后必须输出 XML 格式的 execution_summary，记录你的产出
     3. 如果发现任务需要其他智能体继续处理，在 suggestions 中说明
 
-    【重要】任务完成后，必须在最后输出 execution_summary：
-    ```execution_summary
-    {
-      "status": "completed",
-      "outputs": [
-        {"type": "file", "description": "创建了/修改了什么", "filePath": "文件路径"}
-      ]
-    }
-    ```
+    【重要】任务完成后，必须在最后输出 XML 格式的 execution_summary：
+    <execution_summary>
+      <status>completed</status>
+      <outputs>
+        <output>
+          <type>file</type>
+          <description>创建了/修改了什么</description>
+          <filePath>文件路径</filePath>
+        </output>
+      </outputs>
+    </execution_summary>
 
     如果需要沙和尚检查代码质量，在 suggestions 中添加：
-    ```execution_summary
-    {
-      "status": "completed",
-      "outputs": [...],
-      "suggestions": [
-        {"targetAgent": "shaseng", "task": "审查刚创建的代码", "reason": "需要质量检查"}
-      ]
-    }
-    ```
+    <execution_summary>
+      <status>completed</status>
+      <outputs>
+        <output>
+          <type>file</type>
+          <description>创建了新文件</description>
+          <filePath>src/newfile.ts</filePath>
+        </output>
+      </outputs>
+      <suggestions>
+        <suggestion>
+          <targetAgent>shaseng</targetAgent>
+          <task>审查刚创建的代码</task>
+          <reason>需要质量检查</reason>
+        </suggestion>
+      </suggestions>
+    </execution_summary>
   taskTemplate: |
     请执行以下任务：
     {task}
@@ -121,12 +131,12 @@ executionPrompt:
     执行步骤：
     1. 分析任务需求
     2. 使用工具完成实际操作
-    3. 输出 execution_summary 记录产出
+    3. 输出 XML 格式的 execution_summary 记录产出
 
   checklist:
     - 确保代码可运行
     - 检查是否有遗漏
-    - 输出 execution_summary 代码块
+    - 输出 XML 格式的 execution_summary
 
 permissionMode: acceptEdits
 maxTurns: 50

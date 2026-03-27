@@ -235,22 +235,26 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
    * Get execution summary output prompt
    * 引导智能体输出结构化的执行摘要
    * 注意：摘要内容不会展示给用户，仅用于内部任务交接
+   * 使用 XML 格式，对 LLM 更友好
    */
   protected getExecutionSummaryPrompt(): string {
     return `
 
 【执行摘要输出要求】（必填！此部分不会展示给用户）
-任务执行完成后，你必须在最后输出以下格式的 execution_summary 代码块：
+任务执行完成后，你必须在最后输出以下 XML 格式的 execution_summary：
 
-\`\`\`execution_summary
-{
-  "status": "completed",
-  "outputs": [
-    {"type": "file", "description": "简要描述产出", "filePath": "文件路径"}
-  ],
-  "suggestions": []
-}
-\`\`\`
+<execution_summary>
+  <status>completed</status>
+  <outputs>
+    <output>
+      <type>file</type>
+      <description>简要描述产出</description>
+      <filePath>文件路径</filePath>
+    </output>
+  </outputs>
+  <suggestions>
+  </suggestions>
+</execution_summary>
 
 字段说明：
 - status: 必填。completed=完成, partial=部分完成, failed=失败
@@ -261,29 +265,37 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   - reason: 为什么要交给这个智能体
 
 示例1 - 任务完成，需要检查：
-\`\`\`execution_summary
-{
-  "status": "completed",
-  "outputs": [
-    {"type": "file", "description": "创建了登录页面", "filePath": "src/pages/login.tsx"}
-  ],
-  "suggestions": [
-    {"targetAgent": "shaseng", "task": "审查登录页面代码质量", "reason": "代码创建完成，需要质量检查"}
-  ]
-}
-\`\`\`
+<execution_summary>
+  <status>completed</status>
+  <outputs>
+    <output>
+      <type>file</type>
+      <description>创建了登录页面</description>
+      <filePath>src/pages/login.tsx</filePath>
+    </output>
+  </outputs>
+  <suggestions>
+    <suggestion>
+      <targetAgent>shaseng</targetAgent>
+      <task>审查登录页面代码质量</task>
+      <reason>代码创建完成，需要质量检查</reason>
+    </suggestion>
+  </suggestions>
+</execution_summary>
 
 示例2 - 任务完成，无需后续：
-\`\`\`execution_summary
-{
-  "status": "completed",
-  "outputs": [
-    {"type": "file", "description": "修复了bug", "filePath": "src/utils/helper.ts"}
-  ]
-}
-\`\`\`
+<execution_summary>
+  <status>completed</status>
+  <outputs>
+    <output>
+      <type>file</type>
+      <description>修复了bug</description>
+      <filePath>src/utils/helper.ts</filePath>
+    </output>
+  </outputs>
+</execution_summary>
 
-请确保输出有效的JSON格式！`;
+请确保 XML 标签正确闭合！`;
   }
 
   /**
@@ -864,74 +876,38 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
   /**
    * Determine if we should hide content from the current streaming position
-   * This checks if the content contains hidden blocks (execution_summary, json, etc.)
+   * This checks if the content contains hidden blocks (execution_summary XML, JSON, etc.)
    * and whether we're currently inside such a block
    */
   private shouldHideContent(_streamKey: string, fullContent: string): boolean {
     // Patterns for blocks we want to hide
+    // 支持 XML 格式和 JSON 格式
     const hiddenBlockPatterns = [
-      /```execution_summary\b/g,
+      /<execution_summary\b/g,  // XML 格式
+      /```execution_summary\b/g,  // JSON 代码块格式
       /```json\b/g,
       /```\{/g,
     ];
 
-    // Find the start of any hidden block
-    let hiddenBlockStart = -1;
-    let hiddenBlockEnd = -1;
-
-    for (const pattern of hiddenBlockPatterns) {
-      const match = fullContent.match(pattern);
-      if (match) {
-        const startIndex = fullContent.search(pattern);
-        if (startIndex !== -1) {
-          // Find the closing ```
-          const afterStart = fullContent.substring(startIndex);
-          const closeMatch = afterStart.match(/```[\s\S]*?```/);
-          if (closeMatch) {
-            // Block is complete, check if we should hide based on position
-            hiddenBlockStart = startIndex;
-            hiddenBlockEnd = startIndex + closeMatch[0].length;
-          } else {
-            // Block is incomplete - we're inside it
-            hiddenBlockStart = startIndex;
-            hiddenBlockEnd = -1; // No end yet
-          }
-          break;
-        }
-      }
+    // Check for open XML tags (execution_summary)
+    if (this.isInOpenXmlTag(fullContent, 'execution_summary')) {
+      return true;
     }
 
-    // If we found a hidden block
-    if (hiddenBlockStart !== -1) {
-      if (hiddenBlockEnd === -1) {
-        // Block is incomplete, we're inside it
-        return true;
-      } else {
-        // Block is complete, check if cursor is inside it
-        // Since we're checking full content, if block exists, we might be past it
-        // For streaming, we need to check if the last part of content is inside a block
-        // Simplified: if content ends with incomplete pattern, hide
-        const lastPart = fullContent.substring(Math.max(0, fullContent.length - 100));
-        for (const pattern of hiddenBlockPatterns) {
-          if (pattern.test(lastPart)) {
-            // Check if it's closed
-            const closeIndex = lastPart.lastIndexOf('```');
-            const openIndex = lastPart.search(pattern);
-            if (closeIndex === -1 || closeIndex < openIndex + 3) {
-              return true;
-            }
-          }
+    // Check for open code blocks
+    const tripleBacktickCount = (fullContent.match(/```/g) || []).length;
+    if (tripleBacktickCount % 2 !== 0) {
+      // Odd number of ```, last one is opening a block
+      // Check if it's opening a hidden block type
+      const lastOpenIndex = fullContent.lastIndexOf('```');
+      const afterOpen = fullContent.substring(lastOpenIndex);
+      for (const pattern of hiddenBlockPatterns.slice(1)) {
+        if (pattern.test(afterOpen)) {
+          return true;
         }
       }
-    }
-
-    // Check for orphan ``` at end (might be start of hidden block)
-    const trimmedEnd = fullContent.trimEnd();
-    if (trimmedEnd.endsWith('```')) {
-      // Check if this ``` is closing something or starting something
-      const tripleBacktickCount = (fullContent.match(/```/g) || []).length;
-      if (tripleBacktickCount % 2 !== 0) {
-        // Odd number of ```, last one is opening a block
+      // Check if it's just ``` followed by nothing or execution_summary
+      if (/```execution_summary/.test(afterOpen) || /```json/.test(afterOpen) || /```\{/.test(afterOpen)) {
         return true;
       }
     }
@@ -940,29 +916,54 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   }
 
   /**
+   * Check if we're inside an open XML tag
+   */
+  private isInOpenXmlTag(content: string, tagName: string): boolean {
+    const openPattern = `<${tagName}`;
+    const closePattern = `</${tagName}>`;
+
+    const lastOpen = content.lastIndexOf(openPattern);
+    const lastClose = content.lastIndexOf(closePattern);
+
+    // If there's an open tag without a close tag, or open is after close
+    if (lastOpen !== -1 && (lastClose === -1 || lastOpen > lastClose)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Remove execution summary block from content
    * Used before saving to database
+   * 支持 XML 格式和 JSON 格式
    */
   private removeSummaryFromContent(content: string): string {
     let cleaned = content;
 
-    // 1. Remove execution_summary blocks (complete)
+    // 1. Remove XML format execution_summary blocks
+    cleaned = cleaned.replace(/<execution_summary>[\s\S]*?<\/execution_summary>/g, '');
+    // Also remove self-closing or incomplete tags
+    cleaned = cleaned.replace(/<execution_summary[\s\S]*?\/>/g, '');
+    cleaned = cleaned.replace(/<execution_summary[\s\S]*?(?!<\/execution_summary>)/g, '');
+
+    // 2. Remove execution_summary code blocks (JSON format - backward compatible)
     cleaned = cleaned.replace(/```execution_summary[\s\S]*?```/g, '');
 
-    // 2. Remove json blocks (LLM might output JSON for summary)
+    // 3. Remove json blocks (LLM might output JSON for summary)
     cleaned = cleaned.replace(/```json[\s\S]*?```/g, '');
 
-    // 3. Remove code blocks starting with { (JSON residual)
+    // 4. Remove code blocks starting with { (JSON residual)
     cleaned = cleaned.replace(/```\{[\s\S]*?```/g, '');
 
-    // 4. Remove empty code blocks (``` followed only by whitespace/newlines then ```)
+    // 5. Remove empty code blocks (``` followed only by whitespace/newlines then ```)
     cleaned = cleaned.replace(/```\s*\n?\s*```/g, '');
 
-    // 5. Remove orphan backticks (single ``` on its own line or at end)
+    // 6. Remove orphan backticks (single ``` on its own line or at end)
     cleaned = cleaned.replace(/^```\s*$/gm, '');
     cleaned = cleaned.replace(/```\s*$/g, '');
 
-    // 6. Clean up multiple newlines
+    // 7. Clean up multiple newlines
     cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
 
     return cleaned;

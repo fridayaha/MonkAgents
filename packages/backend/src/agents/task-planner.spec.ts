@@ -13,31 +13,111 @@ describe('TaskPlanner', () => {
   });
 
   describe('parsePlanResult', () => {
-    it('should parse valid JSON', () => {
-      const result = planner['parsePlanResult'](`{
-        "type": "task",
-        "analysis": "测试分析",
-        "steps": [
-          {
-            "stepId": 1,
-            "taskName": "测试任务",
-            "agentRole": "wukong",
-            "taskDetail": "测试详情",
-            "dependencies": [],
-            "priority": "high"
-          }
-        ],
-        "summary": "测试总结",
-        "needsHelp": false
-      }`);
+    describe('XML format', () => {
+      it('should parse valid XML task_plan', () => {
+        const result = planner['parsePlanResult'](`<task_plan>
+          <type>task</type>
+          <analysis>测试分析</analysis>
+          <steps>
+            <step>
+              <stepId>1</stepId>
+              <taskName>测试任务</taskName>
+              <agentRole>wukong</agentRole>
+              <taskDetail>测试详情</taskDetail>
+              <dependencies></dependencies>
+              <priority>high</priority>
+            </step>
+          </steps>
+          <summary>测试总结</summary>
+          <needsHelp>false</needsHelp>
+        </task_plan>`);
 
-      expect(result.type).toBe('task');
-      expect(result.steps).toHaveLength(1);
-      expect(result.steps[0].agentRole).toBe('wukong');
+        expect(result.type).toBe('task');
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].agentRole).toBe('wukong');
+      });
+
+      it('should parse chat mode XML', () => {
+        const result = planner['parsePlanResult'](`<task_plan>
+          <type>chat</type>
+          <analysis>闲聊测试</analysis>
+          <chatTopic>问候</chatTopic>
+          <chatResponders>
+            <responder>
+              <agentRole>wukong</agentRole>
+              <reason>测试原因</reason>
+              <topic>问候话题</topic>
+            </responder>
+          </chatResponders>
+          <steps></steps>
+          <summary>闲聊</summary>
+          <needsHelp>false</needsHelp>
+        </task_plan>`);
+
+        expect(result.type).toBe('chat');
+        expect(result.chatResponders).toHaveLength(1);
+        expect(result.chatResponders![0].agentRole).toBe('wukong');
+      });
+
+      it('should parse XML with multiple steps', () => {
+        const result = planner['parsePlanResult'](`<task_plan>
+          <type>task</type>
+          <analysis>多步骤任务</analysis>
+          <steps>
+            <step>
+              <stepId>1</stepId>
+              <taskName>步骤1</taskName>
+              <agentRole>wukong</agentRole>
+              <taskDetail>实现代码</taskDetail>
+              <dependencies></dependencies>
+              <priority>high</priority>
+            </step>
+            <step>
+              <stepId>2</stepId>
+              <taskName>步骤2</taskName>
+              <agentRole>shaseng</agentRole>
+              <taskDetail>检查代码</taskDetail>
+              <dependencies>1</dependencies>
+              <priority>medium</priority>
+            </step>
+          </steps>
+          <summary>多步骤任务</summary>
+          <needsHelp>false</needsHelp>
+        </task_plan>`);
+
+        expect(result.steps).toHaveLength(2);
+        expect(result.steps[0].agentRole).toBe('wukong');
+        expect(result.steps[1].agentRole).toBe('shaseng');
+        expect(result.steps[1].dependencies).toEqual([1]);
+      });
     });
 
-    it('should parse JSON in code block', () => {
-      const result = planner['parsePlanResult'](`\`\`\`json
+    describe('JSON format (backward compatibility)', () => {
+      it('should parse valid JSON', () => {
+        const result = planner['parsePlanResult'](`{
+          "type": "task",
+          "analysis": "测试分析",
+          "steps": [
+            {
+              "stepId": 1,
+              "taskName": "测试任务",
+              "agentRole": "wukong",
+              "taskDetail": "测试详情",
+              "dependencies": [],
+              "priority": "high"
+            }
+          ],
+          "summary": "测试总结",
+          "needsHelp": false
+        }`);
+
+        expect(result.type).toBe('task');
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].agentRole).toBe('wukong');
+      });
+
+      it('should parse JSON in code block', () => {
+        const result = planner['parsePlanResult'](`\`\`\`json
 {
   "type": "chat",
   "analysis": "闲聊测试",
@@ -47,99 +127,100 @@ describe('TaskPlanner', () => {
 }
 \`\`\``);
 
-      expect(result.type).toBe('chat');
+        expect(result.type).toBe('chat');
+      });
+
+      it('should handle chat type with chatResponders', () => {
+        const result = planner['parsePlanResult'](`{
+          "type": "chat",
+          "analysis": "问候测试",
+          "chatTopic": "问候",
+          "chatResponders": [
+            {
+              "agentRole": "wukong",
+              "reason": "测试原因",
+              "topic": "问候话题"
+            }
+          ],
+          "steps": [],
+          "summary": "问候回复",
+          "needsHelp": false
+        }`);
+
+        expect(result.type).toBe('chat');
+        expect(result.chatResponders).toHaveLength(1);
+        expect(result.chatResponders![0].agentRole).toBe('wukong');
+      });
+
+      it('should fix truncated JSON with incomplete string', () => {
+        // 模拟实际的截断情况：南京天气查询
+        const truncated = `{
+          "type": "chat",
+          "analysis": "用户询问南京明天的天气情况，属于日常生活中的简单查询问题，归类为闲聊模式",
+          "chatTopic": "天气查询",
+          "chatResponders": [
+            {
+              "agentRole": "bajie",
+              "reason": "天气是生活日常话题，符合猪八戒擅长的生活趣事和轻松话题风格",
+              "topic": "以轻松幽默的方式告诉用户如何查询天气，或提供天气查询建议"
+            },
+            {
+              "agentRole": "wukong",
+              "rea`;
+
+        const result = planner['parsePlanResult'](truncated);
+
+        // 应该能够解析出部分结果，而不是抛出异常
+        expect(result.type).toBe('chat');
+        expect(result.chatResponders).toHaveLength(1);
+        expect(result.chatResponders![0].agentRole).toBe('bajie');
+      });
+
+      it('should fix truncated JSON with incomplete array element', () => {
+        const truncated = `{
+          "type": "chat",
+          "analysis": "测试分析",
+          "chatResponders": [
+            {"agentRole": "wukong", "reason": "原因1"},
+            {"agentRole": "bajie", "reason": "原因2",`;
+
+        const result = planner['parsePlanResult'](truncated);
+
+        expect(result.type).toBe('chat');
+        expect(result.chatResponders).toHaveLength(1);
+        expect(result.chatResponders![0].agentRole).toBe('wukong');
+      });
     });
 
-    it('should handle chat type with chatResponders', () => {
-      const result = planner['parsePlanResult'](`{
-        "type": "chat",
-        "analysis": "问候测试",
-        "chatTopic": "问候",
-        "chatResponders": [
-          {
-            "agentRole": "wukong",
-            "reason": "测试原因",
-            "topic": "问候话题"
-          }
-        ],
-        "steps": [],
-        "summary": "问候回复",
-        "needsHelp": false
-      }`);
-
-      expect(result.type).toBe('chat');
-      expect(result.chatResponders).toHaveLength(1);
-      expect(result.chatResponders![0].agentRole).toBe('wukong');
-    });
-
-    it('should fix truncated JSON with incomplete string', () => {
-      // 模拟实际的截断情况：南京天气查询
-      const truncated = `{
-  "type": "chat",
-  "analysis": "用户询问南京明天的天气情况，属于日常生活中的简单查询问题，归类为闲聊模式",
-  "chatTopic": "天气查询",
-  "chatResponders": [
-    {
-      "agentRole": "bajie",
-      "reason": "天气是生活日常话题，符合猪八戒擅长的生活趣事和轻松话题风格",
-      "topic": "以轻松幽默的方式告诉用户如何查询天气，或提供天气查询建议"
-    },
-    {
-      "agentRole": "wukong",
-      "rea`;
-
-      const result = planner['parsePlanResult'](truncated);
-
-      // 应该能够解析出部分结果，而不是抛出异常
-      expect(result.type).toBe('chat');
-      expect(result.chatResponders).toHaveLength(1);
-      expect(result.chatResponders![0].agentRole).toBe('bajie');
-    });
-
-    it('should fix truncated JSON with incomplete array element', () => {
-      const truncated = `{
-  "type": "chat",
-  "analysis": "测试分析",
-  "chatResponders": [
-    {"agentRole": "wukong", "reason": "原因1"},
-    {"agentRole": "bajie", "reason": "原因2",`;
-
-      const result = planner['parsePlanResult'](truncated);
-
-      expect(result.type).toBe('chat');
-      expect(result.chatResponders).toHaveLength(1);
-      expect(result.chatResponders![0].agentRole).toBe('wukong');
-    });
-
-    it('should return default plan when JSON is completely broken', () => {
+    it('should return default plan when neither XML nor JSON found', () => {
       // 完全无法解析的内容
-      const broken = 'this is not json at all';
+      const broken = 'this is not xml or json at all';
 
-      expect(() => planner['parsePlanResult'](broken)).toThrow('No JSON found in result');
+      expect(() => planner['parsePlanResult'](broken)).toThrow('No valid XML or JSON found in result');
     });
 
     it('should handle Chinese agent roles', () => {
-      const result = planner['parsePlanResult'](`{
-        "type": "task",
-        "analysis": "测试",
-        "steps": [
-          {
-            "stepId": 1,
-            "taskName": "测试",
-            "agentRole": "孙悟空",
-            "taskDetail": "测试",
-            "dependencies": [],
-            "priority": "medium"
-          }
-        ],
-        "summary": "测试",
-        "needsHelp": false
-      }`);
+      const result = planner['parsePlanResult'](`<task_plan>
+        <type>task</type>
+        <analysis>测试</analysis>
+        <steps>
+          <step>
+            <stepId>1</stepId>
+            <taskName>测试</taskName>
+            <agentRole>孙悟空</agentRole>
+            <taskDetail>测试</taskDetail>
+            <dependencies></dependencies>
+            <priority>medium</priority>
+          </step>
+        </steps>
+        <summary>测试</summary>
+        <needsHelp>false</needsHelp>
+      </task_plan>`);
 
       expect(result.steps[0].agentRole).toBe('wukong');
     });
 
-    it('should handle various agent role formats', () => {
+    it('should handle various agent role formats in JSON', () => {
       const testCases = [
         { input: 'wukong', expected: 'wukong' },
         { input: '孙悟空', expected: 'wukong' },
