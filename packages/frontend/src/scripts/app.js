@@ -1962,22 +1962,6 @@ class App {
       WebFetch: '🌐',
       WebSearch: '🔍',
       Agent: '🤖',
-    const riskLabels = {
-      low: '🟢 低风险',
-      medium: '🟡 中风险',
-      high: '🔴 高风险'
-    };
-
-    const toolIcons = {
-      Bash: '⌨️',
-      Read: '📖',
-      Write: '✏️',
-      Edit: '📝',
-      Glob: '🔍',
-      Grep: '🔎',
-      WebFetch: '🌐',
-      WebSearch: '🔍',
-      Agent: '🤖',
     };
 
     const icon = toolIcons[request.toolName] || '🔧';
