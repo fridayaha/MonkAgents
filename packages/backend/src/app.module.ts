@@ -10,6 +10,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { WebSocketModule } from './websocket/websocket.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { DebugModule } from './debug/debug.module';
+import { TeamModule } from './team/team.module';
 
 @Module({
   imports: [
@@ -32,6 +33,9 @@ import { DebugModule } from './debug/debug.module';
     WebSocketModule,
     SchedulerModule,
     DebugModule,
+
+    // Team-based agent execution
+    TeamModule,
   ],
   controllers: [AppController],
   providers: [],

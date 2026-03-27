@@ -421,6 +421,12 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       if (result.success) {
         callbacks?.onComplete?.(sessionId, result);
       } else {
+        // Clear invalid CLI session from Redis on failure
+        // This prevents reusing an invalid/expired session ID
+        if (this.redisService && sessionId) {
+          await this.redisService.deleteCliSession(sessionId, this.config.id);
+          this.logger.debug(`Cleared invalid CLI session for ${this.config.id}`);
+        }
         callbacks?.onError?.(sessionId, result.error || 'Execution failed');
       }
 

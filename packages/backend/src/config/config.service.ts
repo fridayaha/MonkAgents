@@ -104,8 +104,8 @@ export class ConfigService {
     const agentFiles = [
       'tangseng.yaml',
       'wukong.yaml',
-      'bajie.yaml',
       'shaseng.yaml',
+      'bajie.yaml',
       'rulai.yaml',
     ];
 

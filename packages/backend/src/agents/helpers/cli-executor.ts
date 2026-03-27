@@ -254,6 +254,15 @@ export class CliExecutor {
       if (this.retryCount < (this.executionConfig.maxRetries || 0)) {
         this.retryCount++;
         this.logger.log(`Retrying execution (${this.retryCount}/${this.executionConfig.maxRetries})...`);
+
+        // Clear CLI session ID on retry to start a fresh session
+        // This prevents retrying with an invalid/expired session ID
+        const previousSessionId = this.currentOptions.cliSessionId;
+        if (previousSessionId) {
+          this.logger.debug(`Clearing CLI session ID for retry (previous: ${previousSessionId})`);
+          this.currentOptions.cliSessionId = undefined;
+        }
+
         setTimeout(() => {
           this.executeWithRetry(resolve, reject, fullPrompt, effectiveWorkingDir, onEvent);
         }, 1000); // 1 second delay before retry

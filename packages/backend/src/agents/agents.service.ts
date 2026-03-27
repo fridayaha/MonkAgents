@@ -12,7 +12,6 @@ import { RulaiAgent } from './rulai.agent';
 import { ExecutableAgentBase } from './executable-agent-base';
 import { WebSocketService } from '../websocket/websocket.service';
 import { AgentRegistry } from './agent-registry.service';
-import { BaseAgentService } from './base-agent.service';
 import { PermissionService } from './permission.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -86,7 +85,7 @@ export class AgentsService implements OnModuleInit {
   /**
    * Wait for an agent to be properly initialized (has valid ID)
    */
-  private async waitForInitialization(agent: BaseAgentService): Promise<void> {
+  private async waitForInitialization(agent: ExecutableAgentBase): Promise<void> {
     let attempts = 0;
     const maxAttempts = 10; // 1 second total wait time
     const waitInterval = 100; // 100ms between attempts

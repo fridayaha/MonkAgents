@@ -17,6 +17,14 @@ import { TaskPlanner } from '../agents/task-planner';
 import { AgentsService } from '../agents/agents.service';
 import { SessionService } from '../session/session.service';
 import { PermissionResponseEvent } from '@monkagents/shared';
+import { TeamLeadAgent } from '../team/team-lead.agent';
+import { TeamManager } from '../team/team.manager';
+import { TaskListService } from '../team/task-list.service';
+import { MailboxService } from '../team/mailbox.service';
+import { WukongAgent } from '../agents/wukong.agent';
+import { BajieAgent } from '../agents/bajie.agent';
+import { ShasengAgent } from '../agents/shaseng.agent';
+import { RulaiAgent } from '../agents/rulai.agent';
 
 @WsGateway({
   cors: {
@@ -39,6 +47,15 @@ export class WebSocketGateway
     private readonly taskPlanner: TaskPlanner,
     private readonly agentsService: AgentsService,
     private readonly sessionService: SessionService,
+    // Team-based execution
+    private readonly teamLeadAgent: TeamLeadAgent,
+    private readonly teamManager: TeamManager,
+    private readonly taskListService: TaskListService,
+    private readonly mailboxService: MailboxService,
+    private readonly wukongAgent: WukongAgent,
+    private readonly bajieAgent: BajieAgent,
+    private readonly shasengAgent: ShasengAgent,
+    private readonly rulaiAgent: RulaiAgent,
   ) {}
 
   afterInit(server: Server) {
@@ -54,7 +71,7 @@ export class WebSocketGateway
     }).catch(error => {
       this.logger.error('Failed to set WebSocket service on agents:', error);
     });
-    // Set dependencies for TangsengAgent
+    // Set dependencies for TangsengAgent (legacy mode)
     this.tangsengAgent.setDependencies(
       this.taskPlanner,
       this.tasksService,
@@ -62,7 +79,40 @@ export class WebSocketGateway
       this.agentsService,
       this.sessionService,
     );
-    this.logger.log('WebSocket Gateway initialized');
+
+    // ===== Team-based execution setup =====
+    // Set dependencies for TeamLeadAgent
+    this.teamLeadAgent.setDependencies(
+      this.teamManager,
+      this.taskListService,
+      this.mailboxService,
+      this.webSocketService,
+      this.taskPlanner,
+    );
+
+    // Set team services for all teammate agents
+    this.wukongAgent.setTeamServices(
+      this.taskListService,
+      this.mailboxService,
+      this.teamManager,
+    );
+    this.bajieAgent.setTeamServices(
+      this.taskListService,
+      this.mailboxService,
+      this.teamManager,
+    );
+    this.shasengAgent.setTeamServices(
+      this.taskListService,
+      this.mailboxService,
+      this.teamManager,
+    );
+    this.rulaiAgent.setTeamServices(
+      this.taskListService,
+      this.mailboxService,
+      this.teamManager,
+    );
+
+    this.logger.log('WebSocket Gateway initialized (Team mode enabled)');
   }
 
   handleConnection(client: Socket): void {
@@ -133,5 +183,41 @@ export class WebSocketGateway
   @SubscribeMessage('ping')
   handlePing(@ConnectedSocket() client: Socket): void {
     client.emit('pong', { timestamp: new Date() });
+  }
+
+  /**
+   * Get team status for a session
+   */
+  @SubscribeMessage('team_status')
+  async handleTeamStatus(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { sessionId: string },
+  ): Promise<void> {
+    const team = this.teamLeadAgent.getTeamStatus(data.sessionId);
+    if (team) {
+      client.emit('team_status', {
+        teamId: team.id,
+        status: team.status,
+        members: team.members.map(m => ({
+          agentId: m.agentId,
+          status: m.status,
+          currentTaskId: m.currentTaskId,
+          tasksCompleted: m.tasksCompleted,
+        })),
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  /**
+   * Cancel a running team
+   */
+  @SubscribeMessage('team_cancel')
+  async handleTeamCancel(
+    @ConnectedSocket() _client: Socket,
+    @MessageBody() data: { sessionId: string },
+  ): Promise<void> {
+    await this.teamLeadAgent.cancelTeam(data.sessionId);
+    this.logger.log(`Team cancelled for session: ${data.sessionId}`);
   }
 }

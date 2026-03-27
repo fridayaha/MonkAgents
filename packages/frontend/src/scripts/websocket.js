@@ -63,6 +63,11 @@ class WebSocketClient {
     this.socket.on('permission_request', (data) => {
       this.emit('permission_request', data);
     });
+
+    // Handle team status updates
+    this.socket.on('team_status', (data) => {
+      this.emit('team_status', data);
+    });
   }
 
   disconnect() {

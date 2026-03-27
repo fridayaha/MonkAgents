@@ -1,16 +1,19 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { AgentExecutionContext } from './executable-agent-base';
 import { AgentConfig, CliExecutionResult } from '@monkagents/shared';
 import { ConfigService } from '../config/config.service';
-import { BaseAgentService } from './base-agent.service';
+import { TeammateAgent } from '../team/teammate.agent';
+import { TeamManager } from '../team/team.manager';
+import { TaskListService } from '../team/task-list.service';
+import { MailboxService } from '../team/mailbox.service';
+import { AgentExecutionContext } from './executable-agent-base';
 
 /**
  * 孙悟空智能体 - 主力执行者
  * 负责：代码编写、调试、测试、重构等具体技术任务
- * 所有行为由配置文件驱动
+ * 继承 TeammateAgent 支持并行任务执行
  */
 @Injectable()
-export class WukongAgent extends BaseAgentService implements OnModuleInit {
+export class WukongAgent extends TeammateAgent implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {
     super({} as AgentConfig);
   }
@@ -18,15 +21,30 @@ export class WukongAgent extends BaseAgentService implements OnModuleInit {
   async onModuleInit() {
     const config = this.configService.getAgentConfig('wukong');
     if (config) {
-      this.initialize(config);
+      this.initializeAgent(config);
+      (this.logger as any).context = `${config.name}Agent`;
     }
-    await super.onModuleInit(); // Call parent implementation after config is loaded
+    this.logger.log(`${this.getName()} initialized`);
   }
 
   /**
-   * 执行任务
+   * Set team services for parallel execution
    */
-  async executeTask(
+  setTeamServices(
+    taskListService: TaskListService,
+    mailboxService: MailboxService,
+    teamManager: TeamManager,
+  ): void {
+    super.setTeamServices(taskListService, mailboxService, teamManager);
+    // Register this agent with the team manager
+    teamManager.registerTeammate(this);
+  }
+
+  /**
+   * 执行任务 (兼容旧接口)
+   * 注意：此方法用于非团队模式的直接执行
+   */
+  async runDirect(
     context: AgentExecutionContext,
     callbacks?: {
       onText?: (text: string) => void;

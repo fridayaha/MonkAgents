@@ -5,3 +5,4 @@ export * from './session';
 export * from './cli';
 export * from './execution-summary';
 export * from './permission';
+export * from './team';

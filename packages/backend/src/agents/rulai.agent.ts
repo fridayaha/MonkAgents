@@ -1,17 +1,20 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { AgentExecutionContext } from './executable-agent-base';
 import { AgentConfig, CliExecutionResult } from '@monkagents/shared';
 import { ConfigService } from '../config/config.service';
-import { BaseAgentService } from './base-agent.service';
+import { TeammateAgent } from '../team/teammate.agent';
+import { TeamManager } from '../team/team.manager';
+import { TaskListService } from '../team/task-list.service';
+import { MailboxService } from '../team/mailbox.service';
+import { AgentExecutionContext } from './executable-agent-base';
 
 /**
  * 如来佛祖智能体 - 资深顾问
  * 负责：架构设计、技术咨询、战略指导、复杂问题解决
  * 使用更强大的 Opus 模型
- * 所有行为由配置文件驱动
+ * 继承 TeammateAgent 支持并行任务执行
  */
 @Injectable()
-export class RulaiAgent extends BaseAgentService implements OnModuleInit {
+export class RulaiAgent extends TeammateAgent implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {
     super({} as AgentConfig);
   }
@@ -19,15 +22,28 @@ export class RulaiAgent extends BaseAgentService implements OnModuleInit {
   async onModuleInit() {
     const config = this.configService.getAgentConfig('rulai');
     if (config) {
-      this.initialize(config);
+      this.initializeAgent(config);
+      (this.logger as any).context = `${config.name}Agent`;
     }
-    await super.onModuleInit(); // Call parent implementation after config is loaded
+    this.logger.log(`${this.getName()} initialized`);
   }
 
   /**
-   * 执行咨询任务
+   * Set team services for parallel execution
    */
-  async executeTask(
+  setTeamServices(
+    taskListService: TaskListService,
+    mailboxService: MailboxService,
+    teamManager: TeamManager,
+  ): void {
+    super.setTeamServices(taskListService, mailboxService, teamManager);
+    teamManager.registerTeammate(this);
+  }
+
+  /**
+   * 执行咨询任务 (兼容旧接口)
+   */
+  async runDirect(
     context: AgentExecutionContext,
     callbacks?: {
       onText?: (text: string) => void;

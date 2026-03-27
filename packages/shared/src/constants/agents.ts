@@ -63,18 +63,18 @@ export const DEFAULT_AGENTS: Partial<AgentConfig>[] = [
     model: DEFAULT_AGENT_MODELS.executor,
   },
   {
-    id: AGENT_IDS.BAJIE,
-    name: '猪八戒',
-    emoji: '🐷',
-    role: 'assistant',
-    model: DEFAULT_AGENT_MODELS.assistant,
-  },
-  {
     id: AGENT_IDS.SHASENG,
     name: '沙和尚',
     emoji: '🧑‍🦲',
     role: 'inspector',
     model: DEFAULT_AGENT_MODELS.inspector,
+  },
+  {
+    id: AGENT_IDS.BAJIE,
+    name: '猪八戒',
+    emoji: '🐷',
+    role: 'assistant',
+    model: DEFAULT_AGENT_MODELS.assistant,
   },
   {
     id: AGENT_IDS.RULAI,

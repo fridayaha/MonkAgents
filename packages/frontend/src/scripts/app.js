@@ -67,6 +67,11 @@ class App {
       taskList: document.getElementById('task-list'),
       scheduledList: document.getElementById('scheduled-list'),
 
+      // 团队状态面板
+      teamStatusPanel: document.getElementById('team-status-panel'),
+      teamStatusBadge: document.getElementById('team-status-badge'),
+      teamMembersList: document.getElementById('team-members-list'),
+
       // 移动端抽屉
       drawerOverlay: document.getElementById('drawer-overlay'),
       sessionsDrawer: document.getElementById('sessions-drawer'),
@@ -1748,6 +1753,8 @@ class App {
         this.removeLastStatusMessage();
         this.setGeneratingState(false);
         this.currentTaskId = null;
+        // Hide team status panel when chat is complete
+        this.hideTeamStatusPanel();
         return;
       }
 
@@ -1813,6 +1820,11 @@ class App {
     wsClient.on('permission_request', (request) => {
       this.handlePermissionRequest(request);
     });
+
+    // Handle team status updates (multi-agent parallel execution)
+    wsClient.on('team_status', (teamStatus) => {
+      this.handleTeamStatus(teamStatus);
+    });
   }
 
   // ==================== Permission Handling ====================
@@ -1838,9 +1850,118 @@ class App {
   }
 
   /**
+   * Handle team status updates (multi-agent parallel execution)
+   * Updates agent status indicators for all team members
+   */
+  handleTeamStatus(teamStatus) {
+    // Update status for each team member
+    if (teamStatus.members) {
+      for (const member of teamStatus.members) {
+        const status = member.status === 'working' ? 'executing' :
+                       member.status === 'idle' ? 'idle' : 'offline';
+        this.updateAgentStatus(member.agentId, status,
+          member.currentTaskId ? `Working on task` : undefined);
+      }
+    }
+
+    // Store team status for UI display
+    if (!this.teamStatuses) {
+      this.teamStatuses = new Map();
+    }
+    this.teamStatuses.set(teamStatus.teamId, teamStatus);
+
+    // Render team status panel
+    this.renderTeamStatusPanel(teamStatus);
+  }
+
+  /**
+   * Render the team status panel
+   */
+  renderTeamStatusPanel(teamStatus) {
+    const panel = this.dom.teamStatusPanel;
+    const badge = this.dom.teamStatusBadge;
+    const membersList = this.dom.teamMembersList;
+
+    if (!panel || !badge || !membersList) return;
+
+    // Show the panel
+    panel.classList.remove('hidden');
+
+    // Update badge
+    const statusLabels = {
+      active: '执行中',
+      completed: '已完成',
+      cancelled: '已取消',
+      error: '错误'
+    };
+    badge.textContent = statusLabels[teamStatus.status] || teamStatus.status;
+    badge.className = 'team-status-badge ' + teamStatus.status;
+
+    // Agent avatar mapping
+    const agentAvatars = {
+      wukong: { emoji: '🐵', name: '孙悟空', class: 'wukong' },
+      bajie: { emoji: '🐷', name: '猪八戒', class: 'bajie' },
+      shaseng: { emoji: '🧔', name: '沙和尚', class: 'shaseng' },
+      rulai: { emoji: '🙏', name: '如来佛祖', class: 'rulai' },
+      tangseng: { emoji: '🧘', name: '唐僧', class: 'tangseng' },
+    };
+
+    // Render members
+    membersList.innerHTML = '';
+    if (teamStatus.members) {
+      for (const member of teamStatus.members) {
+        const agentInfo = agentAvatars[member.agentId] || { emoji: '🤖', name: member.agentName || member.agentId, class: '' };
+        const statusText = member.status === 'working' ? '执行中...' :
+                          member.status === 'idle' ? '空闲' : '离线';
+
+        const memberEl = document.createElement('div');
+        memberEl.className = `team-member-item ${member.status}`;
+        memberEl.innerHTML = `
+          <div class="team-member-avatar ${agentInfo.class}">
+            <span>${agentInfo.emoji}</span>
+          </div>
+          <div class="team-member-info">
+            <div class="team-member-name">${agentInfo.name}</div>
+            <div class="team-member-status ${member.status}">${statusText}</div>
+            ${member.tasksCompleted > 0 ? `<div class="team-member-tasks">已完成 ${member.tasksCompleted} 个任务</div>` : ''}
+          </div>
+          <div class="team-member-indicator ${member.status}"></div>
+        `;
+        membersList.appendChild(memberEl);
+      }
+    }
+  }
+
+  /**
+   * Hide the team status panel
+   */
+  hideTeamStatusPanel() {
+    const panel = this.dom.teamStatusPanel;
+    if (panel) {
+      panel.classList.add('hidden');
+    }
+  }
+
+  /**
    * Render permission request card
    */
   renderPermissionCard(request) {
+    const riskLabels = {
+      low: '🟢 低风险',
+      medium: '🟡 中风险',
+      high: '🔴 高风险'
+    };
+
+    const toolIcons = {
+      Bash: '⌨️',
+      Read: '📖',
+      Write: '✏️',
+      Edit: '📝',
+      Glob: '🔍',
+      Grep: '🔎',
+      WebFetch: '🌐',
+      WebSearch: '🔍',
+      Agent: '🤖',
     const riskLabels = {
       low: '🟢 低风险',
       medium: '🟡 中风险',
