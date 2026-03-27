@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { AgentConfig, CliExecutionResult } from '@monkagents/shared';
 import { ExecutableAgentBase, AgentExecutionContext } from '../agents/executable-agent-base';
+import { ConfigService } from '../config/config.service';
 import { TeamManager } from './team.manager';
 import { TaskListService } from './task-list.service';
 import { MailboxService } from './mailbox.service';
@@ -62,7 +63,7 @@ export class TeamLeadAgent extends ExecutableAgentBase implements OnModuleInit {
   /** Active teams by session ID */
   private activeTeamsBySession: Map<string, Team> = new Map();
 
-  constructor(private readonly configService: any) {
+  constructor(private readonly configService: ConfigService) {
     super({} as AgentConfig);
   }
 

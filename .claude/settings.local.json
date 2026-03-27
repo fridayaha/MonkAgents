@@ -22,7 +22,9 @@
       "WebFetch(domain:dify.ai)",
       "Bash(cd website:*)",
       "Bash(node:*)",
-      "Bash(npx svgo:*)"
+      "Bash(npx svgo:*)",
+      "Bash(ls:*)",
+      "Bash(where claude:*)"
     ]
   },
   "bypassPermissions": true
