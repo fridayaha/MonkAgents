@@ -1,6 +1,7 @@
 import api from './api.js';
 import wsClient from './websocket.js';
 import { icons, getIcon } from './icons.js';
+import { ToolManager, ToolStatus } from './tool-manager.js';
 
 // Import agent avatar SVGs (Vite will handle these as assets)
 import tangsengAvatar from '../images/tangseng.svg';
@@ -43,6 +44,9 @@ class App {
     this.isGenerating = false;
     this.currentTaskId = null;
     this.isCancelled = false;  // Track if current task was cancelled
+
+    // Tool manager
+    this.toolManager = new ToolManager(this);
 
     this.init();
   }
@@ -846,55 +850,7 @@ class App {
    * Render a tool_use message (used in groups)
    */
   renderToolUseMessage(msg) {
-    const toolName = msg.metadata?.toolName || 'unknown';
-    const toolInput = msg.metadata?.input || {};
-    const isComplete = msg.metadata?.isComplete === true;
-    const duration = msg.metadata?.duration;
-    const isLoading = !isComplete;
-
-    const toolSummary = this.getToolSummary(toolName, toolInput);
-
-    const loadingIcon = `<svg class="tool-call-icon loading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-opacity="1"/></svg>`;
-    const successIcon = `<svg class="tool-call-icon success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
-
-    // Build summary section (same for both states)
-    const summarySection = toolSummary
-      ? `<div class="tool-call-summary">${toolSummary}</div>`
-      : '';
-
-    if (isLoading) {
-      return `
-        <div class="message-content">
-          <div class="tool-call-card">
-            <div class="tool-call-header ${!toolSummary ? 'no-border' : ''}">
-              ${loadingIcon}
-              <span class="tool-call-name">${toolName}</span>
-              <span class="tool-call-status in-progress">执行中</span>
-            </div>
-            ${summarySection}
-          </div>
-        </div>
-      `;
-    }
-
-    const durationText = duration ? `<span class="tool-call-duration">${(duration / 1000).toFixed(2)}s</span>` : '';
-    return `
-      <div class="message-content">
-        <div class="tool-call-card">
-          <div class="tool-call-header">
-            ${successIcon}
-            <span class="tool-call-name">${toolName}</span>
-            <span class="tool-call-status completed">完成</span>
-            ${durationText}
-          </div>
-          ${summarySection}
-          <details class="tool-call-details">
-            <summary>查看详情</summary>
-            <div class="tool-call-input"><pre><code>${this.escapeHtml(JSON.stringify(toolInput, null, 2))}</code></pre></div>
-          </details>
-        </div>
-      </div>
-    `;
+    return this.toolManager.renderToolUseMessage(msg);
   }
 
   renderMessage(msg) {
@@ -920,53 +876,7 @@ class App {
 
     // Special rendering for tool_use
     if (msg.type === 'tool_use') {
-      const toolName = msg.metadata?.toolName || 'unknown';
-      const toolInput = msg.metadata?.input || {};
-      const isComplete = msg.metadata?.isComplete === true;
-      const duration = msg.metadata?.duration;
-      const isLoading = !isComplete;
-
-      // Get tool-specific summary
-      const toolSummary = this.getToolSummary(toolName, toolInput);
-
-      // SVG icons - consistent size
-      const loadingIcon = `<svg class="tool-call-icon loading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-opacity="1"/></svg>`;
-      const successIcon = `<svg class="tool-call-icon success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
-
-      // Build summary section (same for both states to maintain consistent height)
-      const summarySection = toolSummary
-        ? `<div class="tool-call-summary">${toolSummary}</div>`
-        : '';
-
-      if (isLoading) {
-        contentHtml = `
-          <div class="tool-call-card">
-            <div class="tool-call-header ${!toolSummary ? 'no-border' : ''}">
-              ${loadingIcon}
-              <span class="tool-call-name">${toolName}</span>
-              <span class="tool-call-status in-progress">执行中</span>
-            </div>
-            ${summarySection}
-          </div>
-        `;
-      } else {
-        const durationText = duration ? `<span class="tool-call-duration">${(duration / 1000).toFixed(2)}s</span>` : '';
-        contentHtml = `
-          <div class="tool-call-card">
-            <div class="tool-call-header">
-              ${successIcon}
-              <span class="tool-call-name">${toolName}</span>
-              <span class="tool-call-status completed">完成</span>
-              ${durationText}
-            </div>
-            ${summarySection}
-            <details class="tool-call-details">
-              <summary>查看详情</summary>
-              <div class="tool-call-input"><pre><code>${this.escapeHtml(JSON.stringify(toolInput, null, 2))}</code></pre></div>
-            </details>
-          </div>
-        `;
-      }
+      contentHtml = this.toolManager.renderToolCard(msg, { isGrouped: false });
     }
 
     // Special rendering for permission_request
@@ -1439,18 +1349,27 @@ class App {
 
       if (existingIndex >= 0 && isComplete) {
         // Update existing tool_use message to mark it as complete
+        const duration = message.metadata?.duration;
+        const status = message.metadata?.status || ToolStatus.COMPLETED;
+        const error = message.metadata?.error;
+
         this.currentSession.messages[existingIndex].metadata = {
           ...this.currentSession.messages[existingIndex].metadata,
           isComplete: true,
-          result: message.metadata?.result
+          status: status,
+          duration: duration,
+          result: message.metadata?.result,
+          error: error
         };
-        // Use incremental update for tool completion
-        this.updateToolMessageDOM(message.id, true);
+        // Use ToolManager to update status
+        this.toolManager.updateToolStatus(message.id, status, { duration, error });
         return;
       } else if (!isComplete) {
         // New tool_use message (in progress)
         this.currentSession.messages.push(message);
         this.appendMessageToDOM(message);
+        // Start timer for the new tool
+        this.toolManager.startTimer(message.id);
         return;
       }
       return;
@@ -1575,23 +1494,6 @@ class App {
     const container = this.dom.messagesContainer;
     if (container) {
       container.scrollTop = container.scrollHeight;
-    }
-  }
-
-  /**
-   * Update tool message status in DOM
-   */
-  updateToolMessageDOM(messageId, isComplete) {
-    const msgEl = document.querySelector(`[data-msg-id="${messageId}"]`);
-    if (!msgEl) return;
-
-    const message = this.currentSession.messages.find(m => m.id === messageId);
-    if (!message) return;
-
-    // Re-render just this message
-    const newHtml = this.renderMessage(message);
-    if (newHtml) {
-      msgEl.outerHTML = newHtml;
     }
   }
 
@@ -2303,33 +2205,6 @@ class App {
   getAgentName(agentId) {
     const agent = this.agents.find(a => a.id === agentId);
     return agent?.config?.name || agentId;
-  }
-
-  getToolSummary(toolName, input) {
-    switch (toolName) {
-      case 'Read':
-        return input.file_path ? `读取文件: <code>${input.file_path}</code>` : null;
-      case 'Edit':
-        return input.file_path ? `编辑文件: <code>${input.file_path}</code>` : null;
-      case 'Write':
-        return input.file_path ? `写入文件: <code>${input.file_path}</code>` : null;
-      case 'Bash':
-        return input.command ? `执行命令: <code>${input.command.substring(0, 50)}${input.command.length > 50 ? '...' : ''}</code>` : null;
-      case 'Glob':
-        return input.pattern ? `搜索文件: <code>${input.pattern}</code>` : null;
-      case 'Grep':
-        return input.pattern ? `搜索内容: <code>${input.pattern}</code>` : null;
-      case 'WebFetch':
-        return input.url ? `获取网页: <code>${input.url.substring(0, 50)}${input.url.length > 50 ? '...' : ''}</code>` : null;
-      case 'WebSearch':
-        return input.query ? `搜索: <code>${input.query}</code>` : null;
-      case 'TaskOutput':
-        return `获取任务输出`;
-      case 'Agent':
-        return input.subagent_type ? `调用智能体: <code>${input.subagent_type}</code>` : null;
-      default:
-        return null;
-    }
   }
 
   getMessageAvatar(msg) {

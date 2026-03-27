@@ -385,6 +385,8 @@ body {
   overflow-y: auto;
   padding: var(--space-2);
   max-height: calc(100vh - 180px);
+  /* 优化滚动性能 */
+  contain: strict;
 }
 
 .session-item {
@@ -392,8 +394,9 @@ body {
   border-radius: var(--radius-md);
   cursor: pointer;
   margin-bottom: var(--space-1);
-  transition: all var(--duration-fast) var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out);
   position: relative;
+  contain: layout style;
 }
 
 .session-item:hover {
@@ -643,6 +646,9 @@ body {
   padding: var(--space-4);
   display: flex;
   flex-direction: column;
+  /* 优化滚动性能 */
+  contain: strict;
+  will-change: scroll-position;
 }
 
 .welcome-message {
@@ -667,7 +673,9 @@ body {
 .message-group {
   margin-bottom: var(--space-3);
   max-width: 85%;
-  animation: message-in var(--duration-normal) var(--ease-out);
+  /* 移除入场动画，优化滚动性能 */
+  /* animation: message-in var(--duration-normal) var(--ease-out); */
+  contain: layout style;
 }
 
 .message-group.user {
@@ -795,7 +803,7 @@ body {
 }
 
 .message.user .message-content {
-  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
+  background-color: var(--color-primary-500);
   color: white;
   border-bottom-right-radius: var(--radius-sm);
   border-left: none;
@@ -806,7 +814,6 @@ body {
   border-bottom-left-radius: var(--radius-sm);
   color: var(--on-surface-primary);
   border-left: 3px solid var(--border-color);
-  transition: border-color var(--duration-fast) var(--ease-out);
 }
 
 /* 智能体消息颜色边框 */
@@ -856,32 +863,36 @@ body {
 }
 
 /* ==================== Tool Call Card ==================== */
+/* ==================== 工具调用卡片 - 紧凑布局 ==================== */
 .tool-call-card {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   background: var(--surface-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  margin: var(--space-2) 0;
-  min-height: 48px;
+  border-radius: var(--radius-md);
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+  margin: 2px 0;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 
-.tool-call-header {
+.tool-call-icon-wrapper {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-tertiary);
-  min-height: 48px;
-  box-sizing: border-box;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.tool-call-header.no-border {
-  border-bottom: none;
+.tool-call-icon-wrapper svg {
+  width: 14px;
+  height: 14px;
 }
 
 .tool-call-icon {
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
 }
 
@@ -894,19 +905,45 @@ body {
   color: var(--status-success);
 }
 
+.tool-call-icon.error {
+  color: var(--status-error);
+}
+
+.tool-call-icon.cancelled {
+  color: var(--on-surface-muted);
+}
+
 .tool-call-name {
   font-weight: 600;
-  font-size: var(--text-sm);
   color: var(--on-surface-primary);
+  flex-shrink: 0;
+}
+
+.tool-call-summary {
+  color: var(--on-surface-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
   flex: 1;
+  min-width: 0;
+}
+
+.tool-call-summary code {
+  background: var(--surface-tertiary);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-primary-600);
 }
 
 .tool-call-status {
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-2);
+  padding: 1px 6px;
   border-radius: var(--radius-sm);
   font-weight: 500;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tool-call-status.in-progress {
@@ -919,64 +956,94 @@ body {
   color: var(--status-success);
 }
 
+.tool-call-status.error {
+  background: var(--status-error-bg);
+  color: var(--status-error);
+}
+
+.tool-call-status.cancelled {
+  background: var(--surface-tertiary);
+  color: var(--on-surface-muted);
+}
+
+.tool-call-timer {
+  color: var(--status-warning);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  animation: pulse 1s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 .tool-call-duration {
-  font-size: var(--text-xs);
   color: var(--on-surface-muted);
   font-family: var(--font-mono);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.tool-call-summary {
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--on-surface-secondary);
-  background: var(--surface-primary);
-  border-top: 1px solid var(--border-color);
-}
-
-.tool-call-summary code {
-  background: var(--surface-tertiary);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-primary-600);
-}
-
+/* 工具详情展开区域 */
 .tool-call-details {
-  border-top: 1px solid var(--border-color);
+  width: 100%;
+  margin-top: 4px;
+  border-top: 1px dashed var(--border-color);
+  padding-top: 4px;
 }
 
 .tool-call-details summary {
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-xs);
+  font-size: 10px;
   color: var(--color-primary-500);
   cursor: pointer;
   user-select: none;
-  background: var(--surface-primary);
-  transition: background-color var(--duration-fast);
+  transition: color var(--duration-fast);
+  padding: 2px 0;
 }
 
 .tool-call-details summary:hover {
-  background: var(--surface-secondary);
+  color: var(--color-primary-600);
 }
 
 .tool-call-details[open] summary {
-  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
 }
 
-.tool-call-input {
-  padding: var(--space-3) var(--space-4);
+.tool-call-input,
+.tool-call-error {
   background: #1e1e1e;
+  border-radius: var(--radius-sm);
+  padding: 8px;
   margin: 0;
+  overflow-x: auto;
 }
 
-.tool-call-input pre {
+.tool-call-input pre,
+.tool-call-error pre {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: 10px;
   color: #d4d4d4;
   overflow-x: auto;
+}
+
+.tool-call-error pre {
+  color: #f87171;
+}
+
+.tool-call-details.error summary {
+  color: var(--status-error);
+}
+
+/* 旧的 header 和 no-border 样式（保持兼容） */
+.tool-call-header {
+  display: contents;
+}
+
+.tool-call-header.no-border {
+  display: contents;
 }
 
 /* Legacy tool styles (kept for backwards compatibility) */
@@ -1140,7 +1207,9 @@ body {
 
 /* ==================== Message Animations ==================== */
 .message {
-  animation: message-in var(--duration-normal) var(--ease-out);
+  /* 移除入场动画，优化滚动性能 */
+  /* animation: message-in var(--duration-normal) var(--ease-out); */
+  contain: layout style;
 }
 
 @keyframes message-in {
@@ -1156,7 +1225,8 @@ body {
 
 /* User message slide in from right */
 .message.user {
-  animation: message-user-in var(--duration-normal) var(--ease-out);
+  /* 移除入场动画，优化滚动性能 */
+  /* animation: message-user-in var(--duration-normal) var(--ease-out); */
 }
 
 @keyframes message-user-in {
@@ -1172,7 +1242,8 @@ body {
 
 /* Agent message slide in from left */
 .message.agent {
-  animation: message-agent-in var(--duration-normal) var(--ease-out);
+  /* 移除入场动画，优化滚动性能 */
+  /* animation: message-agent-in var(--duration-normal) var(--ease-out); */
 }
 
 @keyframes message-agent-in {
