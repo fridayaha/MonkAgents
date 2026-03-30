@@ -168,6 +168,27 @@ img {
     fill: currentColor;
 }
 
+.nav-gitee {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    transition: all 0.15s ease;
+}
+
+.nav-gitee:hover {
+    background: #c71d23;
+    border-color: #c71d23;
+    color: var(--text-primary);
+}
+
+.nav-gitee svg {
+    fill: currentColor;
+}
+
 /* 移动端菜单按钮 */
 .nav-toggle {
     display: none;
@@ -471,6 +492,17 @@ img {
 .btn-secondary:hover {
     background: var(--border-hover);
     border-color: var(--border-hover);
+}
+
+.btn-gitee {
+    background: linear-gradient(135deg, #c71d23 0%, #e74c3c 100%);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-md);
+}
+
+.btn-gitee:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg), 0 0 30px rgba(199, 29, 35, 0.3);
 }
 
 .btn-large {
@@ -973,6 +1005,11 @@ section {
 .social-link:hover {
     background: var(--primary-color);
     border-color: var(--primary-color);
+}
+
+.social-link.social-gitee:hover {
+    background: #c71d23;
+    border-color: #c71d23;
 }
 
 .social-link svg {
