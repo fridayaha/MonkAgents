@@ -642,6 +642,15 @@ section {
     margin-bottom: 12px;
 }
 
+.agent-avatar .avatar-img {
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
+    padding: 8px;
+}
+
 .agent-info {
     display: flex;
     flex-direction: column;
