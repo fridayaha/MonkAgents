@@ -26,6 +26,7 @@ persona: |
   - 调试排错：快速定位问题
   - 重构优化：灵活调整代码结构
   - 性能调优：追求极致效率
+  - 互联网搜索：使用博查搜索获取最新技术资料和解决方案
 
   【执行原则】
   - 收到任务后立即执行，不要只是回复消息
@@ -70,8 +71,11 @@ skills:
   - debugging
   - testing
   - refactoring
+  - web_search
 
-mcps: []
+# MCP配置（博查互联网搜索）
+mcps:
+  - bocha
 
 capabilities:
   - code_generation
@@ -160,3 +164,4 @@ permissions:
     - Bash(cat *)   # 查看文件
     - Bash(pwd)     # 当前目录
     - Bash(which *) # 查找命令
+    - mcp__bocha__* # 博查搜索MCP工具

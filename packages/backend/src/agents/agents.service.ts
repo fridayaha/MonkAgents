@@ -79,7 +79,28 @@ export class AgentsService implements OnModuleInit {
     this.rulaiAgent.setRedisService(this.redisService);
     this.tangsengAgent.setRedisService(this.redisService);
 
+    // Set MCP config on agents that have MCP configured
+    this.setMcpConfigOnAgent(this.wukongAgent);
+    this.setMcpConfigOnAgent(this.bajieAgent);
+    this.setMcpConfigOnAgent(this.shasengAgent);
+    this.setMcpConfigOnAgent(this.rulaiAgent);
+    this.setMcpConfigOnAgent(this.tangsengAgent);
+
     this.logger.log('WebSocket service, Permission service, and Redis service set on all agents');
+  }
+
+  /**
+   * Set MCP configuration on an agent if it has MCP configured
+   */
+  private setMcpConfigOnAgent(agent: ExecutableAgentBase): void {
+    const config = agent.getConfig();
+    if (config.mcps && config.mcps.length > 0) {
+      const mcpConfigJson = this.configService.getMcpConfigJson(config.mcps);
+      if (mcpConfigJson) {
+        agent.setMcpConfigJson(mcpConfigJson);
+        this.logger.log(`Set MCP config on ${config.id}: ${config.mcps.join(', ')}`);
+      }
+    }
   }
 
   /**

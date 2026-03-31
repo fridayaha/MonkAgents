@@ -15,10 +15,8 @@ import { CliExecutor, DEFAULT_CLI_EXECUTION_CONFIG, CliExecutionConfig } from '.
 import { SummaryParser } from './helpers/summary-parser';
 import { PermissionService } from './permission.service';
 import { RedisService } from '../redis/redis.service';
+import { ToolResultCollector } from './helpers/tool-result-collector';
 import { v4 as uuidv4 } from 'uuid';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as crypto from 'crypto';
 
 // 导出类型以便其他模块可以使用
 export { AgentExecutionContext, AgentExecutionCallbacks, ExecutableAgent };
@@ -34,19 +32,13 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   protected wsService: any = null; // Using any to avoid circular dependency issues
   protected permissionService: PermissionService | null = null; // 权限服务
   protected redisService: RedisService | null = null; // Redis 服务 (用于 CLI session 持久化)
+  protected mcpConfigJson: string | undefined; // MCP配置JSON字符串
   private cliExecutor?: CliExecutor;  // Make it optional initially
   private executionConfig: CliExecutionConfig;
 
-  // ===== 文件变更追踪 =====
-  /** 执行前的文件快照: path -> hash */
-  private fileSnapshot: Map<string, string> = new Map();
-  /** 当前工作目录 */
-  private currentWorkingDir: string = '';
-  /** 排除的目录/文件 */
-  private static readonly EXCLUDED_PATTERNS = [
-    'node_modules', '.git', '.idea', '.vscode', 'dist', 'build',
-    '.DS_Store', 'Thumbs.db', '.env', '.env.local', '.env.*.local',
-  ];
+  // ===== 工具执行结果收集 =====
+  /** 工具结果收集器，用于从 CLI 输出中提取文件变更和产出 */
+  protected toolResultCollector: ToolResultCollector = new ToolResultCollector();
 
   constructor(config: AgentConfig, executionConfig?: CliExecutionConfig) {
     this.config = config;
@@ -78,6 +70,14 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
    */
   setRedisService(service: RedisService): void {
     this.redisService = service;
+  }
+
+  /**
+   * Set MCP configuration JSON string
+   * Called by AgentsService during initialization
+   */
+  setMcpConfigJson(mcpConfigJson: string | undefined): void {
+    this.mcpConfigJson = mcpConfigJson;
   }
 
   /**
@@ -306,7 +306,7 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     context: AgentExecutionContext,
     callbacks?: AgentExecutionCallbacks,
   ): Promise<CliExecutionResult> {
-    const { sessionId, workingDirectory, prompt, sessionWorkingDirectory } = context;
+    const { sessionId, prompt, sessionWorkingDirectory, workingDirectory } = context;
     const startTime = Date.now();
 
     // 简洁的日志输出
@@ -321,6 +321,9 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
     // Ensure CliExecutor is initialized
     this.ensureCliExecutor();
+
+    // 确定工作目录
+    const workDir = sessionWorkingDirectory || workingDirectory || process.cwd();
 
     // ===== 获取允许的工具列表 =====
     let allowedTools: string[] = [];
@@ -343,12 +346,17 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     }
     this.cliExecutor!.setCliSessionId(cliSessionId);
 
+    // ===== 设置 MCP 配置 =====
+    if (this.mcpConfigJson) {
+      this.cliExecutor!.setMcpConfig(this.mcpConfigJson);
+      this.logger.log(`MCP config loaded for ${this.config.id}`);
+    }
+
     // Start activity-based timeout check
     this.cliExecutor!.startActivityCheck();
 
-    // ===== 执行前：记录文件快照 =====
-    const workDir = sessionWorkingDirectory || workingDirectory;
-    this.captureFileSnapshot(workDir);
+    // ===== 重置工具结果收集器 =====
+    this.toolResultCollector.reset();
 
     try {
       const fullPrompt = this.buildPrompt(prompt, context);
@@ -394,14 +402,16 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         }
       }
 
-      // ===== 执行后：检测文件变更并生成摘要 =====
-      const filesChanged = this.detectFileChanges();
+      // ===== 执行后：从工具结果中提取文件变更和产出 =====
+      const collectorFileChanges = this.toolResultCollector.extractFileChanges();
+      const collectorOutputs = this.toolResultCollector.extractOutputs();
       const reportedSummary = SummaryParser.parse(result.output || '');
 
       // 合并生成最终摘要
       const executionSummary = this.buildExecutionSummary(
         result,
-        filesChanged,
+        collectorFileChanges,
+        collectorOutputs,
         reportedSummary,
         Date.now() - startTime,
       );
@@ -546,144 +556,14 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     }
   }
 
-  // ===== 文件变更追踪方法 =====
-
-  /**
-   * 执行前捕获文件快照
-   */
-  private captureFileSnapshot(workingDirectory: string): void {
-    this.currentWorkingDir = workingDirectory;
-    this.fileSnapshot.clear();
-
-    if (!fs.existsSync(workingDirectory)) {
-      this.logger.warn(`Working directory does not exist: ${workingDirectory}`);
-      return;
-    }
-
-    this.scanDirectory(workingDirectory);
-  }
-
-  /**
-   * 递归扫描目录，记录文件哈希
-   */
-  private scanDirectory(dir: string, relativePath: string = ''): void {
-    try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        // 跳过排除的模式
-        if (ExecutableAgentBase.EXCLUDED_PATTERNS.some(p => entry.name.includes(p))) {
-          continue;
-        }
-
-        const fullRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
-        const fullPath = path.join(dir, entry.name);
-
-        if (entry.isDirectory()) {
-          this.scanDirectory(fullPath, fullRelativePath);
-        } else if (entry.isFile()) {
-          try {
-            const hash = this.getFileHash(fullPath);
-            this.fileSnapshot.set(fullRelativePath, hash);
-          } catch (e) {
-            // 忽略无法读取的文件
-          }
-        }
-      }
-    } catch (e) {
-      this.logger.warn(`Error scanning directory ${dir}: ${e}`);
-    }
-  }
-
-  /**
-   * 计算文件 MD5 哈希
-   */
-  private getFileHash(filePath: string): string {
-    const content = fs.readFileSync(filePath);
-    return crypto.createHash('md5').update(content).digest('hex');
-  }
-
-  /**
-   * 执行后检测文件变更
-   */
-  private detectFileChanges(): FileChange[] {
-    const changes: FileChange[] = [];
-    const newSnapshot = new Map<string, string>();
-
-    if (!fs.existsSync(this.currentWorkingDir)) {
-      return changes;
-    }
-
-    // 重新扫描目录
-    const scanNew = (dir: string, relativePath: string = '') => {
-      try {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-        for (const entry of entries) {
-          if (ExecutableAgentBase.EXCLUDED_PATTERNS.some(p => entry.name.includes(p))) {
-            continue;
-          }
-
-          const fullRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
-          const fullPath = path.join(dir, entry.name);
-
-          if (entry.isDirectory()) {
-            scanNew(fullPath, fullRelativePath);
-          } else if (entry.isFile()) {
-            try {
-              const hash = this.getFileHash(fullPath);
-              newSnapshot.set(fullRelativePath, hash);
-
-              const oldHash = this.fileSnapshot.get(fullRelativePath);
-
-              if (!oldHash) {
-                // 新文件
-                changes.push({
-                  path: fullRelativePath,
-                  action: 'created',
-                });
-              } else if (oldHash !== hash) {
-                // 修改的文件
-                changes.push({
-                  path: fullRelativePath,
-                  action: 'modified',
-                });
-              }
-            } catch (e) {
-              // 忽略无法读取的文件
-            }
-          }
-        }
-      } catch (e) {
-        this.logger.warn(`Error scanning directory ${dir}: ${e}`);
-      }
-    };
-
-    scanNew(this.currentWorkingDir);
-
-    // 检测删除的文件
-    for (const [oldPath] of this.fileSnapshot) {
-      if (!newSnapshot.has(oldPath)) {
-        changes.push({
-          path: oldPath,
-          action: 'deleted',
-        });
-      }
-    }
-
-    if (changes.length > 0) {
-      this.logger.log(`Detected ${changes.length} file changes`);
-    }
-
-    return changes;
-  }
-
   /**
    * 构建执行摘要
+   * 合并工具收集器提取的信息和智能体报告的信息
    */
   private buildExecutionSummary(
     result: CliExecutionResult,
-    filesChanged: FileChange[],
+    collectorFileChanges: FileChange[],
+    collectorOutputs: import('@monkagents/shared').OutputItem[],
     reportedSummary: ExecutionSummary | null,
     durationMs: number,
   ): ExecutionSummary {
@@ -693,16 +573,44 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     const status = reportedSummary?.status ?? (result.success ? 'completed' : 'failed');
     builder.setStatus(status);
 
-    // 添加文件变更（自动收集）
-    for (const file of filesChanged) {
+    // 添加文件变更（优先使用智能体报告的，补充工具收集器提取的）
+    const fileChangeMap = new Map<string, FileChange>();
+
+    // 先添加工具收集器提取的文件变更
+    for (const file of collectorFileChanges) {
+      fileChangeMap.set(file.path, file);
+    }
+
+    // 智能体报告的文件变更覆盖工具提取的（更准确）
+    if (reportedSummary?.filesChanged) {
+      for (const file of reportedSummary.filesChanged) {
+        fileChangeMap.set(file.path, file);
+      }
+    }
+
+    for (const [, file] of fileChangeMap) {
       builder.addFileChange(file.path, file.action, file.summary);
     }
 
-    // 添加智能体报告的产出
+    // 添加产出（优先使用智能体报告的，补充工具收集器提取的）
+    const outputMap = new Map<string, import('@monkagents/shared').OutputItem>();
+
+    // 先添加工具收集器提取的产出
+    for (const output of collectorOutputs) {
+      const key = output.filePath || output.description;
+      outputMap.set(key, output);
+    }
+
+    // 智能体报告的产出覆盖工具提取的（更准确）
     if (reportedSummary?.outputs) {
       for (const output of reportedSummary.outputs) {
-        builder.addOutput(output.type, output.description, output.value, output.filePath);
+        const key = output.filePath || output.description;
+        outputMap.set(key, output);
       }
+    }
+
+    for (const [, output] of outputMap) {
+      builder.addOutput(output.type, output.description, output.value, output.filePath);
     }
 
     // 添加建议（用于 handoff）
@@ -812,6 +720,10 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
 
       case 'tool_use':
         callbacks?.onToolUse?.(sessionId, event.toolName || '', event.toolInput || {});
+        // 收集工具调用到 collector
+        if (event.toolName && !event.isPartial) {
+          this.toolResultCollector.addToolUse(event.toolName, event.toolInput || {});
+        }
         // Only broadcast when we have complete tool info (not just partial streaming)
         if (event.toolName && Object.keys(event.toolInput || {}).length > 0) {
           // Check if we already broadcasted this tool (avoid duplicates from stream_event + assistant)
@@ -824,6 +736,8 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
         break;
 
       case 'tool_result':
+        // 收集工具结果到 collector
+        this.toolResultCollector.addToolResult(event.toolResult);
         // Tool execution complete - mark the tool as complete
         this.broadcastToolResult(sessionId, event.toolResult);
         break;

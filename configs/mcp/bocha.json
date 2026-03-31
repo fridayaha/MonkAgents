@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "bocha": {
+      "type": "http",
+      "url": "https://mcp.bochaai.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${BOCHA_API_KEY}"
+      }
+    }
+  }
+}

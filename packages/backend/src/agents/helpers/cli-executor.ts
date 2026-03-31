@@ -38,6 +38,8 @@ export interface CliExecutionOptions {
   allowedTools?: string[];
   /** CLI session ID to resume (for context persistence) */
   cliSessionId?: string;
+  /** MCP configuration JSON string */
+  mcpConfig?: string;
 }
 
 /**
@@ -75,6 +77,13 @@ export class CliExecutor {
    */
   setCliSessionId(cliSessionId: string | undefined): void {
     this.currentOptions.cliSessionId = cliSessionId;
+  }
+
+  /**
+   * Set MCP configuration for next execution
+   */
+  setMcpConfig(mcpConfig: string | undefined): void {
+    this.currentOptions.mcpConfig = mcpConfig;
   }
 
   async execute(
@@ -418,6 +427,12 @@ export class CliExecutor {
     // Add --resume for CLI session persistence
     if (this.currentOptions.cliSessionId) {
       baseArgs.push('--resume', this.currentOptions.cliSessionId);
+    }
+
+    // Add MCP configuration if provided
+    if (this.currentOptions.mcpConfig) {
+      this.logger.log(`Adding MCP config to CLI args`);
+      baseArgs.push('--mcp-config', this.currentOptions.mcpConfig);
     }
 
     // Note: Prompt will be sent via stdin, not as argument

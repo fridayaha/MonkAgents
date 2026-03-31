@@ -51,6 +51,15 @@ export class CliService implements OnModuleDestroy {
       ...options,
     };
 
+    // Load MCP configuration for this agent
+    if (agentConfig.mcps && agentConfig.mcps.length > 0) {
+      const mcpConfigJson = this.configService.getMcpConfigJson(agentConfig.mcps);
+      if (mcpConfigJson) {
+        execOptions.mcpConfig = mcpConfigJson;
+        this.logger.log(`Loaded MCP config for agent ${agentId}: ${agentConfig.mcps.join(', ')}`);
+      }
+    }
+
     // Create new session
     const session = new CliSession(agentId, execOptions);
     const sessionId = session.getId();

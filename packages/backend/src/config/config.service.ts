@@ -1,8 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { parse } from 'yaml';
 import { AgentConfig, AgentRole } from '@monkagents/shared';
+
+/**
+ * MCP Server configuration structure
+ */
+interface McpServerConfig {
+  url?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+}
+
+/**
+ * MCP configuration file structure
+ */
+interface McpConfig {
+  mcpServers: Record<string, McpServerConfig>;
+}
 
 interface SystemConfig {
   database: {
@@ -38,12 +56,14 @@ export class ConfigService {
   private readonly logger = new Logger(ConfigService.name);
   private systemConfig: SystemConfig;
   private agentConfigs: Map<string, AgentConfig> = new Map();
+  private mcpConfigs: Map<string, McpConfig> = new Map();
 
   constructor() {
     // Synchronously load config in constructor to ensure it's available before TypeORM initializes
     this.systemConfig = this.loadSystemConfigSync();
     this.loadAgentConfigsSync();
-    this.logger.log(`Loaded ${this.agentConfigs.size} agent configurations`);
+    this.loadMcpConfigsSync();
+    this.logger.log(`Loaded ${this.agentConfigs.size} agent configurations, ${this.mcpConfigs.size} MCP configurations`);
   }
 
   private loadSystemConfigSync(): SystemConfig {
@@ -121,6 +141,117 @@ export class ConfigService {
         this.logger.warn(`Agent config not found: ${file}`);
       }
     }
+  }
+
+  /**
+   * Load MCP configurations from configs/mcp/*.json
+   */
+  private loadMcpConfigsSync(): void {
+    const mcpPaths = [
+      join(process.cwd(), 'configs', 'mcp'),
+      join(process.cwd(), '..', '..', 'configs', 'mcp'),
+    ];
+
+    let mcpPath: string | null = null;
+    for (const path of mcpPaths) {
+      if (existsSync(path)) {
+        mcpPath = path;
+        break;
+      }
+    }
+
+    if (!mcpPath) {
+      this.logger.log('MCP configs directory not found, skipping');
+      return;
+    }
+
+    try {
+      const files = readdirSync(mcpPath).filter(f => f.endsWith('.json'));
+      for (const file of files) {
+        const filePath = join(mcpPath, file);
+        try {
+          let content = readFileSync(filePath, 'utf-8');
+          // Replace environment variable placeholders like ${VAR_NAME}
+          content = this.replaceEnvVariables(content);
+          const config = JSON.parse(content) as McpConfig;
+          // Use filename (without .json) as the key
+          const key = file.replace('.json', '');
+          this.mcpConfigs.set(key, config);
+          this.logger.log(`Loaded MCP config: ${key}`);
+        } catch (err) {
+          this.logger.warn(`Failed to load MCP config: ${file}`);
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to read MCP configs directory: ${err}`);
+    }
+  }
+
+  /**
+   * Replace environment variable placeholders in a string
+   * Supports ${VAR_NAME} and ${VAR_NAME:-default} syntax
+   */
+  private replaceEnvVariables(content: string): string {
+    return content.replace(/\$\{([^}]+)\}/g, (match, varDef: string) => {
+      // Check for default value syntax: VAR_NAME:-default
+      const colonIndex = varDef.indexOf(':-');
+      let varName: string;
+      let defaultValue: string | undefined;
+
+      if (colonIndex !== -1) {
+        varName = varDef.substring(0, colonIndex).trim();
+        defaultValue = varDef.substring(colonIndex + 2).trim();
+      } else {
+        varName = varDef.trim();
+      }
+
+      const envValue = process.env[varName];
+      if (envValue !== undefined && envValue !== '') {
+        return envValue;
+      }
+      if (defaultValue !== undefined) {
+        return defaultValue;
+      }
+      this.logger.warn(`Environment variable ${varName} is not set and no default value provided`);
+      return match; // Return original if no value found
+    });
+  }
+
+  /**
+   * Get MCP configuration by name
+   */
+  getMcpConfig(name: string): McpConfig | undefined {
+    return this.mcpConfigs.get(name);
+  }
+
+  /**
+   * Get merged MCP configuration for a list of MCP names
+   * Returns a single McpConfig with all servers merged
+   */
+  getMergedMcpConfig(mcpNames: string[]): McpConfig | null {
+    if (!mcpNames || mcpNames.length === 0) {
+      return null;
+    }
+
+    const merged: McpConfig = { mcpServers: {} };
+    for (const name of mcpNames) {
+      const config = this.mcpConfigs.get(name);
+      if (config) {
+        Object.assign(merged.mcpServers, config.mcpServers);
+      } else {
+        this.logger.warn(`MCP config not found: ${name}`);
+      }
+    }
+
+    return merged.mcpServers ? merged : null;
+  }
+
+  /**
+   * Get MCP configuration as JSON string for CLI --mcp-config parameter
+   */
+  getMcpConfigJson(mcpNames: string[]): string | null {
+    const merged = this.getMergedMcpConfig(mcpNames);
+    return merged ? JSON.stringify(merged) : null;
   }
 
   private getDefaultSystemConfig(): SystemConfig {

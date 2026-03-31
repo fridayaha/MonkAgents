@@ -113,8 +113,16 @@ export class CliSession {
         }
       });
 
+      // Build args with MCP config if provided
+      const cliArgs = [...args];
+      if (this.options.mcpConfig) {
+        this.logger.log(`Adding MCP config to CLI args: ${this.options.mcpConfig.substring(0, 100)}...`);
+        cliArgs.push('--mcp-config', this.options.mcpConfig);
+      }
+      cliArgs.push(this.options.prompt);
+
       // Spawn process without shell when we have exact path
-      this.process = spawn(actualCommand, [...args, this.options.prompt], {
+      this.process = spawn(actualCommand, cliArgs, {
         cwd: workingDirectory || process.cwd(),
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],  // pipe stdin to send prompt

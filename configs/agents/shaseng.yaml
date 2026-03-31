@@ -32,6 +32,7 @@ persona: |
   - 测试验证：编写和运行测试用例，验证功能正确性
   - 质量保证：确保交付物符合标准
   - 安全检查：发现安全隐患和风险
+  - 互联网搜索：使用博查搜索查询最佳实践和安全漏洞信息
 
   【工作边界】
   - 不直接修改代码（只提出建议）
@@ -113,8 +114,11 @@ skills:
   - testing
   - quality_assurance
   - security_audit
+  - web_search
 
-mcps: []
+# MCP配置（博查互联网搜索）
+mcps:
+  - bocha
 
 capabilities:
   - code_review
@@ -144,3 +148,4 @@ permissions:
     - Bash(ls *)    # 列出文件
     - Bash(cat *)   # 查看文件
     - Bash(pwd)     # 当前目录
+    - mcp__bocha__* # 博查搜索MCP工具

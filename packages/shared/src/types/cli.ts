@@ -200,6 +200,8 @@ export interface CliExecutionOptions {
   prompt: string;
   workingDirectory?: string;
   timeout?: number;
+  /** MCP配置JSON字符串，用于 --mcp-config 参数 */
+  mcpConfig?: string;
   onInit?: (sessionId: string) => void;
   onText?: (text: string) => void;
   onToolUse?: (name: string, input: Record<string, unknown>) => void;
