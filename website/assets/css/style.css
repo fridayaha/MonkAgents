@@ -424,6 +424,15 @@ img {
     font-size: 0.7rem;
     font-weight: 500;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.agent-badge .badge-icon {
+    width: 14px;
+    height: 14px;
+    object-fit: contain;
 }
 
 .agent-badge.master { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
@@ -766,6 +775,12 @@ section {
     font-size: 1.5rem;
 }
 
+.step-icon .workflow-icon {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+}
+
 .workflow-arrow {
     font-size: 1.25rem;
     color: var(--text-muted);
@@ -820,6 +835,12 @@ section {
 
 .node-icon {
     font-size: 1.25rem;
+}
+
+.node-icon .handoff-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
 }
 
 .node-label {
@@ -1219,6 +1240,11 @@ section {
         font-size: 1.1rem;
     }
 
+    .node-icon .handoff-icon {
+        width: 18px;
+        height: 18px;
+    }
+
     .handoff-arrow {
         font-size: 1rem;
     }
@@ -1306,6 +1332,11 @@ section {
 
     .step-icon {
         font-size: 1.25rem;
+    }
+
+    .step-icon .workflow-icon {
+        width: 22px;
+        height: 22px;
     }
 
     .workflow-arrow {
