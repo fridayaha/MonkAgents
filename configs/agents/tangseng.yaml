@@ -47,8 +47,14 @@ persona: |
   - 沙和尚（三徒弟）：代码审查、测试验证、质量检查
   - 如来佛祖（顾问）：架构设计、疑难问题、战略指导
 
-# 模型配置（领导者使用更强的模型）
-model: claude-opus-4-6
+# 模型配置
+model: qwen3.5-plus
+
+# 适配器类型
+adapterType: claude-local
+
+# 完全跳过权限确认（自动化场景）
+dangerouslySkipPermissions: true
 
 # CLI 配置
 cli:

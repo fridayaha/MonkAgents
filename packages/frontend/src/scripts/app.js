@@ -1366,8 +1366,8 @@ class App {
           result: message.metadata?.result,
           error: error
         };
-        // Use ToolManager to update status
-        this.toolManager.updateToolStatus(message.id, status, { duration, error });
+        // Use ToolManager to update status (pass result for output display)
+        this.toolManager.updateToolStatus(message.id, status, { duration, error, result: message.metadata?.result });
         return;
       } else if (!isComplete) {
         // New tool_use message (in progress)

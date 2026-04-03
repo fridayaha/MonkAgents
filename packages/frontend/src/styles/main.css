@@ -1142,6 +1142,7 @@ body {
 }
 
 .tool-call-input,
+.tool-call-result,
 .tool-call-error {
   background: #1e1e1e;
   border-radius: var(--radius-sm);
@@ -1151,6 +1152,7 @@ body {
 }
 
 .tool-call-input pre,
+.tool-call-result pre,
 .tool-call-error pre {
   margin: 0;
   font-family: var(--font-mono);
@@ -1159,8 +1161,16 @@ body {
   overflow-x: auto;
 }
 
+.tool-call-result pre {
+  color: #a3e635; /* 绿色，表示成功输出 */
+}
+
 .tool-call-error pre {
   color: #f87171;
+}
+
+.tool-call-details.result summary {
+  color: var(--status-success);
 }
 
 .tool-call-details.error summary {

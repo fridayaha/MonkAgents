@@ -40,7 +40,13 @@ persona: |
   - 发现问题及时反馈，不擅自修改
 
 # 模型配置
-model: claude-sonnet-4-6
+model: kimi-k2.5
+
+# 适配器类型
+adapterType: claude-local
+
+# 完全跳过权限确认（自动化场景）
+dangerouslySkipPermissions: true
 
 # CLI 配置
 cli:
@@ -115,6 +121,8 @@ skills:
   - quality_assurance
   - security_audit
   - web_search
+  - vision-analysis
+  - minimax-xlsx
 
 # MCP配置（博查互联网搜索）
 mcps:

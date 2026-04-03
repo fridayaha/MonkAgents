@@ -1,12 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TaskPlanner } from './task-planner';
+import { ConfigService } from '../config/config.service';
 
 describe('TaskPlanner', () => {
   let planner: TaskPlanner;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [TaskPlanner],
+      providers: [
+        TaskPlanner,
+        {
+          provide: ConfigService,
+          useValue: {
+            getAgentConfig: jest.fn().mockReturnValue({ model: 'qwen3.5-plus' }),
+          },
+        },
+      ],
     }).compile();
 
     planner = module.get<TaskPlanner>(TaskPlanner);

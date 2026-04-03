@@ -29,6 +29,66 @@ const DEFAULT_LOCK_OPTIONS: Required<LockOptions> = {
 };
 
 /**
+ * Redis Lua script for atomic task claim
+ * KEYS[1]: task_lock:{taskId}
+ * KEYS[2]: task:{taskId}
+ * ARGV[1]: agentId
+ * ARGV[2]: lockTtlMs
+ * ARGV[3]: currentTime (ISO string)
+ * Returns: [success (0/1), taskJson]
+ */
+const CLAIM_TASK_SCRIPT = `
+local lockKey = KEYS[1]
+local taskKey = KEYS[2]
+local agentId = ARGV[1]
+local lockTtl = tonumber(ARGV[2])
+local currentTime = ARGV[3]
+
+-- Try to acquire lock
+local lockAcquired = redis.call('SET', lockKey, agentId, 'PX', lockTtl, 'NX')
+
+if lockAcquired then
+  -- Get task data
+  local taskData = redis.call('GET', taskKey)
+  if taskData then
+    local task = cjson.decode(taskData)
+    -- Check task status
+    if task.status == 'pending' then
+      -- Update task status
+      task.status = 'in_progress'
+      task.owner = agentId
+      task.claimedAt = currentTime
+      redis.call('SET', taskKey, cjson.encode(task))
+      return {1, cjson.encode(task)}
+    end
+  end
+  -- Task not available, release lock
+  redis.call('DEL', lockKey)
+end
+
+return {0, ''}
+`;
+
+/**
+ * Redis Lua script for lock renewal
+ * KEYS[1]: task_lock:{taskId}
+ * ARGV[1]: agentId
+ * ARGV[2]: lockTtlMs
+ * Returns: 1 if renewed, 0 if not owner
+ */
+const RENEW_LOCK_SCRIPT = `
+local lockKey = KEYS[1]
+local owner = ARGV[1]
+local ttl = tonumber(ARGV[2])
+local currentOwner = redis.call('GET', lockKey)
+if currentOwner == owner then
+  redis.call('PEXPIRE', lockKey, ttl)
+  return 1
+end
+return 0
+`;
+
+/**
  * Task List Service
  * Manages shared task list with Redis-based distributed locking
  */
@@ -179,6 +239,179 @@ export class TaskListService {
       success: false,
       reason: 'Could not acquire lock on any available task',
     };
+  }
+
+  /**
+   * Claim a task atomically using Redis Lua script
+   * This ensures no race condition between checking status and acquiring lock
+   */
+  async claimTaskAtomic(
+    teamId: string,
+    agentId: string,
+    options?: LockOptions,
+  ): Promise<TaskClaimResult> {
+    const lockOptions = { ...DEFAULT_LOCK_OPTIONS, ...options };
+
+    // Get pending tasks sorted by priority
+    const pendingTasks = this.findAvailableTasks(teamId, agentId);
+
+    if (pendingTasks.length === 0) {
+      return { success: false, reason: 'No available tasks' };
+    }
+
+    // Try atomic claim for each task in priority order
+    for (const task of pendingTasks) {
+      const result = await this.tryClaimTaskAtomic(task.id, agentId, lockOptions);
+      if (result.success && result.task) {
+        // Update in-memory task
+        const memTask = this.tasks.get(task.id);
+        if (memTask) {
+          memTask.status = 'in_progress';
+          memTask.owner = agentId;
+          memTask.claimedAt = new Date();
+        }
+        this.logger.log(`Agent ${agentId} atomically claimed task ${task.id}: ${task.subject}`);
+        return { success: true, task: memTask || result.task };
+      }
+    }
+
+    return { success: false, reason: 'Could not claim any task atomically' };
+  }
+
+  /**
+   * Try to claim a specific task atomically
+   */
+  private async tryClaimTaskAtomic(
+    taskId: string,
+    agentId: string,
+    options: Required<LockOptions>,
+  ): Promise<{ success: boolean; task?: TeamTask }> {
+    // Fallback to memory if Redis unavailable
+    if (!this.redisService?.isAvailable()) {
+      return this.tryClaimTaskMemory(taskId, agentId, options);
+    }
+
+    const client = (this.redisService as any).client;
+    if (!client) {
+      return this.tryClaimTaskMemory(taskId, agentId, options);
+    }
+
+    try {
+      const result = await client.eval(
+        CLAIM_TASK_SCRIPT,
+        2,
+        `task_lock:${taskId}`,
+        `task:${taskId}`,
+        agentId,
+        options.lockTtlMs,
+        new Date().toISOString(),
+      );
+
+      const [success, taskJson] = result as [number, string];
+
+      if (success === 1 && taskJson) {
+        const task = JSON.parse(taskJson) as TeamTask;
+        // Restore Date objects
+        task.createdAt = new Date(task.createdAt);
+        if (task.claimedAt) task.claimedAt = new Date(task.claimedAt);
+        return { success: true, task };
+      }
+
+      return { success: false };
+    } catch (error) {
+      this.logger.error(`Atomic claim error: ${error}`);
+      return this.tryClaimTaskMemory(taskId, agentId, options);
+    }
+  }
+
+  /**
+   * Memory-based task claim (fallback)
+   */
+  private tryClaimTaskMemory(
+    taskId: string,
+    agentId: string,
+    options: Required<LockOptions>,
+  ): { success: boolean; task?: TeamTask } {
+    const task = this.tasks.get(taskId);
+    if (!task || task.status !== 'pending') {
+      return { success: false };
+    }
+
+    // Check dependencies
+    if (task.blockedBy.length > 0) {
+      const allCompleted = task.blockedBy.every(depId => {
+        const dep = this.tasks.get(depId);
+        return dep && dep.status === 'completed';
+      });
+      if (!allCompleted) {
+        return { success: false };
+      }
+    }
+
+    // Try memory lock
+    const lockKey = `task_lock:${taskId}`;
+    const acquired = this.acquireMemoryLock(lockKey, agentId, options.lockTtlMs);
+
+    if (acquired) {
+      task.status = 'in_progress';
+      task.owner = agentId;
+      task.claimedAt = new Date();
+      return { success: true, task };
+    }
+
+    return { success: false };
+  }
+
+  /**
+   * Renew task lock (for long-running tasks)
+   * Only the lock owner can renew
+   */
+  async renewTaskLock(taskId: string, agentId: string, ttlMs?: number): Promise<boolean> {
+    const lockKey = `task_lock:${taskId}`;
+    const ttl = ttlMs || DEFAULT_LOCK_OPTIONS.lockTtlMs;
+
+    // Memory fallback
+    if (!this.redisService?.isAvailable()) {
+      const lock = this.memoryLocks.get(lockKey);
+      if (lock && lock.owner === agentId) {
+        lock.expiresAt = Date.now() + ttl;
+        this.logger.debug(`Lock renewed for task ${taskId} by ${agentId}`);
+        return true;
+      }
+      return false;
+    }
+
+    const client = (this.redisService as any).client;
+    if (!client) {
+      const lock = this.memoryLocks.get(lockKey);
+      return !!(lock && lock.owner === agentId);
+    }
+
+    try {
+      const result = await client.eval(
+        RENEW_LOCK_SCRIPT,
+        1,
+        lockKey,
+        agentId,
+        ttl,
+      );
+
+      const renewed = result === 1;
+      if (renewed) {
+        this.logger.debug(`Lock renewed for task ${taskId} by ${agentId}`);
+      }
+      return renewed;
+    } catch (error) {
+      this.logger.error(`Lock renewal error: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Release lock explicitly (public method)
+   */
+  async releaseTaskLock(taskId: string): Promise<void> {
+    await this.releaseLock(`task_lock:${taskId}`);
   }
 
   /**

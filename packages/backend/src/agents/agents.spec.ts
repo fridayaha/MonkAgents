@@ -92,7 +92,7 @@ describe('Agent Implementations', () => {
       mockConfigService = createMockConfigService();
       agent = new TangsengAgent(mockConfigService);
       agent.onModuleInit(); // Trigger config loading
-      taskPlanner = new TaskPlanner();
+      taskPlanner = new TaskPlanner(mockConfigService);
       // Inject dependencies
       agent.setDependencies(taskPlanner, null as any, null as any);
     });

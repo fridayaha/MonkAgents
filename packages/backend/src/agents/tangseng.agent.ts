@@ -19,7 +19,7 @@ import { BaseAgentService } from './base-agent.service';
 import { SummaryParser } from './helpers/summary-parser';
 
 /** 最大执行轮次（防止无限循环） */
-const MAX_EXECUTION_ROUNDS = 10;
+const MAX_EXECUTION_ROUNDS = 1000;
 
 /** 每个智能体最大 handoff 次数 */
 const MAX_HANDOFF_PER_AGENT = 15;
@@ -615,22 +615,51 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
         const suggestion = SummaryParser.getFirstHandoffSuggestion(result.executionSummary);
 
         if (suggestion && result.success) {
-          // 检查 handoff 目标是否有效（不能 handoff 到 tangseng）
+          // 检查 handoff 目标
           if (suggestion.targetAgent === 'tangseng') {
-            this.logger.warn(`⚠️ 智能体 ${agentName} 尝试 handoff 到 tangseng，这是不允许的`);
-            this.logger.log(`将忽略此 handoff 请求，任务已完成`);
+            // 智能体请求唐僧重新规划或更新任务状态
+            this.logger.log(`🔄 智能体 ${agentName} 请求唐僧重新规划任务`);
 
-            // 广播提示消息
+            // 广播消息
             this.wsService!.broadcastMessage(sessionId, {
-              id: `handoff-rejected-${Date.now()}`,
+              id: `handoff-tangseng-${Date.now()}`,
               sessionId,
               sender: 'system',
               senderId: 'system',
               senderName: '系统',
               type: 'text',
-              content: `⚠️ ${agentName} 尝试将任务交还给唐僧，但唐僧是协调者不执行具体任务。任务已标记为完成。`,
+              content: `🔄 ${agentName} 请求唐僧重新评估任务规划\n原因: ${suggestion.reason}`,
               createdAt: new Date(),
             });
+
+            // 唐僧重新规划：基于当前执行结果创建新的子任务
+            if (suggestion.task && suggestion.task.trim()) {
+              // 创建新的子任务给建议的智能体（如果指定了具体的任务内容）
+              await this.tasksService!.createSubtask({
+                taskId,
+                agentId: 'wukong', // 默认交给悟空执行新任务
+                agentRole: 'executor',
+                description: suggestion.task,
+                order: subtasks.length + 1,
+              });
+
+              this.logger.log(`📋 唐僧创建新子任务: ${suggestion.task}`);
+
+              // 广播新任务
+              this.wsService!.broadcastMessage(sessionId, {
+                id: `new-task-${Date.now()}`,
+                sessionId,
+                sender: 'agent',
+                senderId: 'tangseng',
+                senderName: '唐僧',
+                type: 'text',
+                content: `根据执行情况，我决定新增任务：${suggestion.task}`,
+                createdAt: new Date(),
+              });
+
+              // 重新获取子任务列表
+              subtasks = await this.tasksService!.getSubtasks(taskId);
+            }
 
             pendingHandoff = null;
           } else {
@@ -829,6 +858,7 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
 
   /**
    * Format plan message for display (new TaskPlanResult format)
+   * 每个任务项前添加未完成状态标记 [ ]
    */
   private formatPlanMessageFromResult(planResult: TaskPlanResult): string {
     const lines = ['📋 **任务分解计划**\n'];
@@ -839,8 +869,9 @@ export class TangsengAgent extends BaseAgentService implements OnModuleInit {
         ? ` (依赖: 步骤${step.dependencies.join(', ')})`
         : '';
       const priorityEmoji = step.priority === 'high' ? '🔴' : step.priority === 'low' ? '🟢' : '🟡';
-      lines.push(`${step.stepId}. ${agentEmoji} **${step.taskName}**${deps}`);
-      lines.push(`   ${priorityEmoji} ${step.taskDetail}`);
+      // 添加未完成状态标记 [ ]
+      lines.push(`[ ] ${step.stepId}. ${agentEmoji} **${step.taskName}**${deps}`);
+      lines.push(`     ${priorityEmoji} ${step.taskDetail}`);
     }
 
     lines.push(`\n${planResult.analysis}`);

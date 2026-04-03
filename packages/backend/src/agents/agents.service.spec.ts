@@ -12,6 +12,7 @@ import { RulaiAgent } from './rulai.agent';
 import { AgentRegistry } from './agent-registry.service';
 import { PermissionService } from './permission.service';
 import { RedisService } from '../redis/redis.service';
+import { SkillsDirectoryService } from '../skills/skills-directory.service';
 
 describe('AgentsService', () => {
   let service: AgentsService;
@@ -122,6 +123,13 @@ describe('AgentsService', () => {
     isAvailable: jest.fn().mockReturnValue(true),
   };
 
+  const mockSkillsDirectoryService = {
+    getSkillsInstructions: jest.fn().mockReturnValue(''),
+    getSkills: jest.fn().mockReturnValue([]),
+    getSkillsDirectory: jest.fn().mockReturnValue('/path/to/skills'),
+    listSkills: jest.fn().mockReturnValue([]),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -186,6 +194,10 @@ describe('AgentsService', () => {
         {
           provide: RedisService,
           useValue: mockRedisService,
+        },
+        {
+          provide: SkillsDirectoryService,
+          useValue: mockSkillsDirectoryService,
         },
       ],
     }).compile();

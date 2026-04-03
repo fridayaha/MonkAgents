@@ -5,7 +5,8 @@ import { AppModule } from './app.module';
 import { Logger } from '@nestjs/common';
 
 // Load environment variables from .env file
-dotenv.config({ path: require('path').resolve(__dirname, '../../.env') });
+// Path: from packages/backend/dist to project root (3 levels up)
+dotenv.config({ path: require('path').resolve(__dirname, '../../../.env') });
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');

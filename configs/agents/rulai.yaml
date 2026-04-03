@@ -48,8 +48,14 @@ persona: |
   - 不参与日常开发工作
   - 保持超然的顾问姿态
 
-# 模型配置（使用最强大的模型）
-model: claude-opus-4-6
+# 模型配置
+model: qwen3-coder-plus
+
+# 适配器类型
+adapterType: claude-local
+
+# 完全跳过权限确认（自动化场景）
+dangerouslySkipPermissions: true
 
 # CLI 配置
 cli:

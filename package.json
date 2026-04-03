@@ -4,7 +4,8 @@
   "description": "Multi-agent collaboration platform based on Journey to the West characters",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "packages/adapters"
   ],
   "scripts": {
     "build": "npm run build -w @monkagents/shared && npm run build -w @monkagents/backend",

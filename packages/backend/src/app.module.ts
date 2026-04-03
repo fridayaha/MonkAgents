@@ -11,6 +11,9 @@ import { WebSocketModule } from './websocket/websocket.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { DebugModule } from './debug/debug.module';
 import { TeamModule } from './team/team.module';
+import { AuditModule } from './audit/audit.module';
+import { SkillsModule } from './skills/skills.module';
+import { WorkspaceModule } from './workspace/workspace.module';
 
 @Module({
   imports: [
@@ -25,6 +28,15 @@ import { TeamModule } from './team/team.module';
 
     // CLI Process Management
     CliModule,
+
+    // Audit logging
+    AuditModule,
+
+    // Skills directory
+    SkillsModule,
+
+    // Workspace (worktree)
+    WorkspaceModule,
 
     // Features
     AgentsModule,

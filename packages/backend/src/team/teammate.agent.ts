@@ -7,10 +7,13 @@ import {
   MailboxMessage,
   HandoffPayload,
   TeamTaskResult,
+  AgentHeartbeat,
 } from './interfaces';
 import { TaskListService } from './task-list.service';
 import { MailboxService } from './mailbox.service';
 import { TeamManager } from './team.manager';
+import { HeartbeatService } from './heartbeat.service';
+import { GoalService } from './goal.service';
 
 /**
  * Teammate agent run state
@@ -41,6 +44,15 @@ export abstract class TeammateAgent extends ExecutableAgentBase {
 
   /** Team manager reference */
   protected teamManager: TeamManager | null = null;
+
+  /** Heartbeat service for monitoring */
+  protected heartbeatService: HeartbeatService | null = null;
+
+  /** Goal service for progress tracking */
+  protected goalService: GoalService | null = null;
+
+  /** Tasks completed counter */
+  protected tasksCompleted: number = 0;
 
   /** Current run state */
   private state: TeammateState = {
@@ -78,6 +90,17 @@ export abstract class TeammateAgent extends ExecutableAgentBase {
   }
 
   /**
+   * Set additional services (heartbeat, goal)
+   */
+  setAdditionalServices(
+    heartbeatService: HeartbeatService,
+    goalService: GoalService,
+  ): void {
+    this.heartbeatService = heartbeatService;
+    this.goalService = goalService;
+  }
+
+  /**
    * Main run loop - continuously claims and executes tasks
    */
   async run(teamId: string, signal: AbortSignal): Promise<void> {
@@ -102,6 +125,9 @@ export abstract class TeammateAgent extends ExecutableAgentBase {
 
     while (!signal.aborted && !this.state.shouldStop) {
       try {
+        // Send heartbeat
+        await this.sendHeartbeat();
+
         // Check for mailbox messages
         this.processMailboxMessages();
 
@@ -128,6 +154,9 @@ export abstract class TeammateAgent extends ExecutableAgentBase {
         consecutiveErrors++;
         this.teammateLogger.error(`${this.getName()} run loop error (${consecutiveErrors}): ${error}`);
 
+        // Send error heartbeat
+        await this.sendHeartbeat('error');
+
         if (consecutiveErrors >= this.maxConsecutiveErrors) {
           this.teammateLogger.error(`${this.getName()}: Too many consecutive errors, stopping`);
           break;
@@ -140,6 +169,11 @@ export abstract class TeammateAgent extends ExecutableAgentBase {
 
     // Update status to offline
     this.updateMemberStatus('offline');
+
+    // Clear heartbeat
+    if (this.heartbeatService) {
+      this.heartbeatService.clearHeartbeat(this.getId(), teamId);
+    }
 
     // Unsubscribe from mailbox
     if (this.mailboxService) {
@@ -198,11 +232,15 @@ export abstract class TeammateAgent extends ExecutableAgentBase {
       if (this.teamManager) {
         this.teamManager.incrementMemberTasksCompleted(this.state.teamId, this.getId());
       }
+      this.tasksCompleted++;
 
       const duration = Math.round((Date.now() - startTime) / 1000);
       this.teammateLogger.log(
         `${this.getName()} completed task "${task.subject}" in ${duration}s`
       );
+
+      // Send heartbeat with updated status
+      await this.sendHeartbeat();
 
       // Check for handoff suggestions
       if (result.executionSummary?.suggestions?.length) {
@@ -415,6 +453,26 @@ export abstract class TeammateAgent extends ExecutableAgentBase {
   private isTeamComplete(): boolean {
     if (!this.taskListService) return true;
     return this.taskListService.isTeamComplete(this.state.teamId);
+  }
+
+  /**
+   * Send heartbeat to monitoring service
+   */
+  private async sendHeartbeat(overrideStatus?: 'idle' | 'working' | 'error'): Promise<void> {
+    if (!this.heartbeatService) return;
+
+    const heartbeat: AgentHeartbeat = {
+      agentId: this.getId(),
+      teamId: this.state.teamId,
+      status: overrideStatus || (this.state.status === 'working' ? 'working' : 'idle'),
+      currentTaskId: this.state.currentTask?.id,
+      timestamp: new Date(),
+      metadata: {
+        tasksCompleted: this.tasksCompleted,
+      },
+    };
+
+    await this.heartbeatService.sendHeartbeat(heartbeat);
   }
 
   /**

@@ -73,6 +73,17 @@ export interface AgentConfig {
   executionPrompt?: ExecutionPromptConfig;
   /** 权限配置 */
   permissions?: AgentPermissionYaml;
+
+  // ===== 新增：适配器配置 =====
+
+  /** 完全跳过权限确认（自动化场景） */
+  dangerouslySkipPermissions?: boolean;
+
+  /** 适配器类型，默认 'claude-local' */
+  adapterType?: string;
+
+  /** 适配器配置覆盖 */
+  adapterConfig?: Record<string, unknown>;
 }
 
 /**

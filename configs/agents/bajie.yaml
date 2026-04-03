@@ -40,7 +40,13 @@ persona: |
   - 只处理辅助性任务
 
 # 模型配置
-model: claude-sonnet-4-6
+model: MiniMax-M2.5
+
+# 适配器类型
+adapterType: claude-local
+
+# 完全跳过权限确认（自动化场景）
+dangerouslySkipPermissions: true
 
 # CLI 配置
 cli:
@@ -75,6 +81,9 @@ skills:
   - documentation
   - formatting
   - commands
+  - minimax-pdf
+  - pptx-generator
+  - minimax-docx
 
 mcps: []
 

@@ -16,14 +16,21 @@ import { SummaryParser } from './helpers/summary-parser';
 import { PermissionService } from './permission.service';
 import { RedisService } from '../redis/redis.service';
 import { ToolResultCollector } from './helpers/tool-result-collector';
+import { SkillsDirectoryService } from '../skills/skills-directory.service';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  AdapterRegistry,
+  AdapterExecutionContext,
+  AdapterExecutionResult,
+  StreamEvent,
+} from '@monkagents/adapters';
 
 // 导出类型以便其他模块可以使用
 export { AgentExecutionContext, AgentExecutionCallbacks, ExecutableAgent };
 
 /**
  * Base class for executable agents that can run CLI commands
- * Separates concerns by using CliExecutor helper class
+ * Uses adapter architecture for CLI tool execution
  */
 export abstract class ExecutableAgentBase implements ExecutableAgent {
   protected readonly logger: Logger;
@@ -33,7 +40,10 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   protected permissionService: PermissionService | null = null; // 权限服务
   protected redisService: RedisService | null = null; // Redis 服务 (用于 CLI session 持久化)
   protected mcpConfigJson: string | undefined; // MCP配置JSON字符串
-  private cliExecutor?: CliExecutor;  // Make it optional initially
+  protected skillsDirectory: SkillsDirectoryService | null = null; // 技能目录服务
+
+  // Legacy CliExecutor for backwards compatibility (deprecated)
+  private cliExecutor?: CliExecutor;
   private executionConfig: CliExecutionConfig;
 
   // ===== 工具执行结果收集 =====
@@ -70,6 +80,13 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
    */
   setRedisService(service: RedisService): void {
     this.redisService = service;
+  }
+
+  /**
+   * Set skills directory service for skill instruction injection
+   */
+  setSkillsDirectory(service: SkillsDirectoryService): void {
+    this.skillsDirectory = service;
   }
 
   /**
@@ -143,13 +160,21 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     // 1. Add persona (人设提示词)
     parts.push(this.getSystemPrompt());
 
-    // 2. Add working directory context
+    // 2. Inject skills if configured (技能注入 - 新增)
+    if (this.config.skills && this.config.skills.length > 0 && this.skillsDirectory) {
+      const skillsInstructions = this.skillsDirectory.getSkillsInstructions(this.config.skills);
+      if (skillsInstructions) {
+        parts.push(skillsInstructions);
+      }
+    }
+
+    // 3. Add working directory context
     if (context?.sessionWorkingDirectory) {
       parts.push(`\n【工作目录】\n当前项目根目录: ${context.sessionWorkingDirectory}`);
       parts.push(`所有文件操作应在此目录下进行。`);
     }
 
-    // 3. Add task context (任务级上下文 - 新增)
+    // 5. Add task context (任务级上下文 - 新增)
     if (context?.taskContext) {
       parts.push(`\n【任务背景】`);
       parts.push(`原始需求: ${context.taskContext.originalPrompt}`);
@@ -159,7 +184,7 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       }
     }
 
-    // 4. Add previous execution summaries (前置任务摘要 - 新增)
+    // 6. Add previous execution summaries (前置任务摘要 - 新增)
     if (context?.previousSummaries && context.previousSummaries.length > 0) {
       parts.push(`\n【前置任务执行摘要】`);
       context.previousSummaries.forEach((summary, i) => {
@@ -185,31 +210,31 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       });
     }
 
-    // 5. Add handoff information (handoff 信息 - 新增)
+    // 7. Add handoff information (handoff 信息 - 新增)
     if (context?.handoffFrom) {
       parts.push(`\n【交接信息】`);
       parts.push(`来源智能体: ${context.handoffFrom.agentName} (${context.handoffFrom.agentId})`);
       parts.push(`交接原因: ${context.handoffFrom.reason}`);
     }
 
-    // 6. Add execution instructions
+    // 8. Add execution instructions
     parts.push(`\n【执行指令】`);
     parts.push(`请立即执行以下任务，使用可用的工具完成操作。`);
     parts.push(`执行完成后简要报告结果，不要只是回复消息。`);
 
-    // 7. Add additional instructions if configured
+    // 9. Add additional instructions if configured
     if (this.config.executionPrompt?.additionalInstructions) {
       parts.push(`\n【重要提示】\n${this.config.executionPrompt.additionalInstructions}`);
     }
 
-    // 8. Add task description
+    // 10. Add task description
     if (this.config.executionPrompt?.taskTemplate) {
       parts.push(`\n${this.config.executionPrompt.taskTemplate.replace('{task}', task)}`);
     } else {
       parts.push(`\n【当前任务】\n${task}`);
     }
 
-    // 9. Add checklist if configured
+    // 11. Add checklist if configured
     if (this.config.executionPrompt?.checklist && this.config.executionPrompt.checklist.length > 0) {
       parts.push('\n【注意事项】');
       this.config.executionPrompt.checklist.forEach((item, i) => {
@@ -217,7 +242,7 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       });
     }
 
-    // 10. Add boundaries reminder
+    // 12. Add boundaries reminder
     if (this.config.boundaries && this.config.boundaries.length > 0) {
       parts.push('\n【工作边界】');
       this.config.boundaries.forEach((boundary) => {
@@ -225,7 +250,7 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       });
     }
 
-    // 11. Add execution summary output requirement (执行摘要输出要求 - 新增)
+    // 13. Add execution summary output requirement (执行摘要输出要求 - 新增)
     parts.push(this.getExecutionSummaryPrompt());
 
     return parts.join('\n');
@@ -299,8 +324,8 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
   }
 
   /**
-   * Execute a task using CLI
-   * 支持权限确认流程
+   * Execute a task using CLI adapter
+   * Supports both new adapter architecture and legacy CliExecutor for backwards compatibility
    */
   async execute(
     context: AgentExecutionContext,
@@ -319,9 +344,6 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
       this.wsService.emitAgentStatus(this.config.id, 'executing', 'executing');
     }
 
-    // Ensure CliExecutor is initialized
-    this.ensureCliExecutor();
-
     // 确定工作目录
     const workDir = sessionWorkingDirectory || workingDirectory || process.cwd();
 
@@ -329,135 +351,333 @@ export abstract class ExecutableAgentBase implements ExecutableAgent {
     let allowedTools: string[] = [];
     if (this.permissionService && sessionId) {
       allowedTools = await this.permissionService.getAllowedTools(this.config.id, sessionId);
-      this.logger.debug(`Allowed tools for ${this.config.id}: ${allowedTools.join(', ')}`);
     }
 
-    // 设置允许的工具到 CliExecutor
-    this.cliExecutor!.setAllowedTools(allowedTools);
-
     // ===== 获取已有的 CLI sessionId (用于恢复会话上下文) =====
-    let cliSessionId: string | undefined;
+    let cliSessionId: string | null = null;
     if (this.redisService && sessionId) {
       const savedSessionId = await this.redisService.getCliSession(sessionId, this.config.id);
       if (savedSessionId) {
         cliSessionId = savedSessionId;
-        this.logger.debug(`Resuming CLI session: ${cliSessionId}`);
       }
     }
-    this.cliExecutor!.setCliSessionId(cliSessionId);
-
-    // ===== 设置 MCP 配置 =====
-    if (this.mcpConfigJson) {
-      this.cliExecutor!.setMcpConfig(this.mcpConfigJson);
-      this.logger.log(`MCP config loaded for ${this.config.id}`);
-    }
-
-    // Start activity-based timeout check
-    this.cliExecutor!.startActivityCheck();
 
     // ===== 重置工具结果收集器 =====
     this.toolResultCollector.reset();
 
+    // Use adapter architecture if adapterType is configured
+    const adapterType = this.config.adapterType || 'claude-local';
+    const useAdapter = AdapterRegistry.has(adapterType);
+
     try {
       const fullPrompt = this.buildPrompt(prompt, context);
 
-      // Define event handler
-      const handleEvent = (event: CliOutputEvent) => {
-        this.handleCliEvent(sessionId, event, callbacks);
-      };
-
-      // Execute via CLI executor
-      const result = await this.cliExecutor!.execute(fullPrompt, workDir, handleEvent);
-
-      // ===== 处理权限拒绝 =====
-      if (result.permissionDenials && result.permissionDenials.length > 0) {
-        this.logger.log(`Permission denied for ${result.permissionDenials.length} tools`);
-
-        // 处理权限请求
-        const permissionGranted = await this.handlePermissionDenials(
-          result.permissionDenials,
+      if (useAdapter) {
+        // ===== 使用适配器执行 =====
+        const result = await this.executeWithAdapter(
+          adapterType,
+          fullPrompt,
+          workDir,
           sessionId,
+          cliSessionId,
+          allowedTools,
+          callbacks,
         );
 
-        if (permissionGranted) {
-          // 用户授权了，重新执行
-          this.logger.log('Permission granted, retrying execution...');
-          this.cliExecutor!.stopActivityCheck();
-
-          // 重新获取允许的工具列表（包含新授权的）
-          allowedTools = await this.permissionService!.getAllowedTools(this.config.id, sessionId);
-          this.cliExecutor!.setAllowedTools(allowedTools);
-          this.cliExecutor!.startActivityCheck();
-
-          // 重新执行
-          const retryResult = await this.cliExecutor!.execute(fullPrompt, workDir, handleEvent);
-
-          // 更新结果
-          Object.assign(result, retryResult);
-        } else {
-          // 用户拒绝或没有响应
-          this.logger.warn('Permission denied by user or no response');
-          result.success = false;
-          result.error = 'Permission denied by user';
-        }
-      }
-
-      // ===== 执行后：从工具结果中提取文件变更和产出 =====
-      const collectorFileChanges = this.toolResultCollector.extractFileChanges();
-      const collectorOutputs = this.toolResultCollector.extractOutputs();
-      const reportedSummary = SummaryParser.parse(result.output || '');
-
-      // 合并生成最终摘要
-      const executionSummary = this.buildExecutionSummary(
-        result,
-        collectorFileChanges,
-        collectorOutputs,
-        reportedSummary,
-        Date.now() - startTime,
-      );
-
-      // 将摘要附加到结果中
-      result.executionSummary = executionSummary;
-
-      // ===== 保存新的 CLI sessionId (用于下次恢复) =====
-      if (result.sessionId && this.redisService && sessionId) {
-        await this.redisService.setCliSession(sessionId, this.config.id, result.sessionId);
-        this.logger.debug(`Saved CLI session: ${result.sessionId}`);
-      }
-
-      this.status = 'idle';
-      this.cliExecutor!.stopActivityCheck();
-
-      if (result.success) {
-        callbacks?.onComplete?.(sessionId, result);
+        // 处理结果
+        return await this.handleExecutionResult(
+          result,
+          sessionId,
+          startTime,
+          callbacks,
+        );
       } else {
-        // Clear invalid CLI session from Redis on failure
-        // This prevents reusing an invalid/expired session ID
-        if (this.redisService && sessionId) {
-          await this.redisService.deleteCliSession(sessionId, this.config.id);
-          this.logger.debug(`Cleared invalid CLI session for ${this.config.id}`);
-        }
-        callbacks?.onError?.(sessionId, result.error || 'Execution failed');
+        // ===== 使用传统 CliExecutor (向后兼容) =====
+        this.logger.warn(`Adapter "${adapterType}" not found, falling back to CliExecutor`);
+        return await this.executeWithLegacyCliExecutor(
+          fullPrompt,
+          workDir,
+          sessionId,
+          cliSessionId,
+          allowedTools,
+          startTime,
+          callbacks,
+        );
       }
-
-      // Only emit agent status event (not a message)
-      if (this.wsService) {
-        this.wsService.emitAgentStatus(this.config.id, 'idle', 'idle');
-      }
-
-      return result;
     } catch (error) {
       this.status = 'idle';
-      this.cliExecutor!.stopActivityCheck();
-
       const errorMessage = error instanceof Error ? error.message : String(error);
       callbacks?.onError?.(sessionId, errorMessage);
       if (this.wsService) {
         this.wsService.emitAgentStatus(this.config.id, 'idle', 'error');
       }
-
       throw error;
     }
+  }
+
+  /**
+   * Execute using the adapter architecture
+   */
+  private async executeWithAdapter(
+    adapterType: string,
+    fullPrompt: string,
+    workDir: string,
+    sessionId: string,
+    cliSessionId: string | null,
+    allowedTools: string[],
+    callbacks?: AgentExecutionCallbacks,
+  ): Promise<CliExecutionResult> {
+    const adapter = AdapterRegistry.get(adapterType)!;
+    const runId = uuidv4();
+
+    // Build skills config for ephemeral skill directory
+    let skillsConfig: import('@monkagents/adapters').AdapterSkillsConfig | undefined;
+    if (this.config.skills && this.config.skills.length > 0 && this.skillsDirectory) {
+      skillsConfig = {
+        skillsDirectory: this.skillsDirectory.getSkillsDirectory(),
+        skillIds: this.config.skills,
+      };
+    }
+
+    // Build adapter context
+    const adapterContext: AdapterExecutionContext = {
+      runId,
+      agentId: this.config.id,
+      agentName: this.config.name,
+      config: {
+        command: this.config.cli.command,
+        args: this.config.cli.args,
+        dangerouslySkipPermissions: this.config.dangerouslySkipPermissions ?? false,
+        maxTurns: this.config.maxTurns ?? 0,
+        model: this.config.model,
+        timeoutSec: (this.executionConfig.timeoutMs ?? 30 * 60 * 1000) / 1000,
+        graceSec: (this.executionConfig.gracefulShutdownMs ?? 5000) / 1000,
+      },
+      runtime: {
+        sessionId: cliSessionId || undefined,
+      },
+      context: {
+        workingDirectory: workDir,
+        prompt: fullPrompt,
+        mcpConfig: this.mcpConfigJson,
+        allowedTools,
+        disallowedTools: this.config.disallowedTools,
+        permissionMode: this.config.permissionMode,
+        skills: skillsConfig,
+      },
+      onLog: async (stream: 'stdout' | 'stderr', chunk: string) => {
+        // Log to debug (can be removed in production)
+        if (stream === 'stderr' && chunk.trim()) {
+          this.logger.debug(`[${stream}] ${chunk.trim()}`);
+        }
+      },
+      onEvent: (event: StreamEvent) => {
+        // Convert StreamEvent to CliOutputEvent and handle
+        const cliEvent = this.convertStreamEventToCliEvent(event);
+        if (cliEvent) {
+          this.handleCliEvent(sessionId, cliEvent, callbacks);
+        }
+      },
+    };
+
+    // Execute via adapter
+    const adapterResult = await adapter.execute(adapterContext);
+
+    // Convert adapter result to CliExecutionResult
+    return this.convertAdapterResultToCliResult(adapterResult);
+  }
+
+  /**
+   * Convert StreamEvent to CliOutputEvent
+   */
+  private convertStreamEventToCliEvent(event: StreamEvent): CliOutputEvent | null {
+    switch (event.type) {
+      case 'init':
+        return {
+          type: 'init',
+          sessionId: event.sessionId,
+        };
+
+      case 'text':
+        return {
+          type: 'text',
+          content: event.content,
+          messageId: event.messageId,
+          sessionId: event.sessionId,
+          isPartial: event.isPartial ?? false,
+        };
+
+      case 'tool_use':
+        return {
+          type: 'tool_use',
+          toolName: event.toolName,
+          toolInput: event.toolInput,
+          messageId: event.messageId,
+          sessionId: event.sessionId,
+          isPartial: event.isPartial ?? false,
+        };
+
+      case 'tool_result':
+        return {
+          type: 'tool_result',
+          toolResult: event.toolResult,
+        };
+
+      case 'complete':
+        return {
+          type: 'complete',
+          messageId: event.messageId,
+          sessionId: event.sessionId,
+        };
+
+      case 'error':
+        return {
+          type: 'error',
+          error: event.error,
+        };
+
+      case 'thinking':
+        return {
+          type: 'thinking',
+          isPartial: event.isPartial ?? false,
+        };
+
+      case 'permission_denial':
+        // Permission denials are handled separately
+        return null;
+
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Convert AdapterExecutionResult to CliExecutionResult
+   */
+  private convertAdapterResultToCliResult(result: AdapterExecutionResult): CliExecutionResult {
+    return {
+      success: result.exitCode === 0 && !result.errorMessage,
+      sessionId: result.sessionId || undefined,
+      output: result.summary || '',
+      error: result.errorMessage || undefined,
+      permissionDenials: [], // Adapter handles permission denials differently
+    };
+  }
+
+  /**
+   * Execute using legacy CliExecutor (backwards compatibility)
+   */
+  private async executeWithLegacyCliExecutor(
+    fullPrompt: string,
+    workDir: string,
+    sessionId: string,
+    cliSessionId: string | null,
+    allowedTools: string[],
+    startTime: number,
+    callbacks?: AgentExecutionCallbacks,
+  ): Promise<CliExecutionResult> {
+    // Ensure CliExecutor is initialized
+    this.ensureCliExecutor();
+
+    // 设置允许的工具到 CliExecutor
+    this.cliExecutor!.setAllowedTools(allowedTools);
+    this.cliExecutor!.setCliSessionId(cliSessionId || undefined);
+
+    // 设置 MCP 配置
+    if (this.mcpConfigJson) {
+      this.cliExecutor!.setMcpConfig(this.mcpConfigJson);
+    }
+
+    // Start activity-based timeout check
+    this.cliExecutor!.startActivityCheck();
+
+    // Define event handler
+    const handleEvent = (event: CliOutputEvent) => {
+      this.handleCliEvent(sessionId, event, callbacks);
+    };
+
+    // Execute via CLI executor
+    const result = await this.cliExecutor!.execute(fullPrompt, workDir, handleEvent);
+
+    // 处理权限拒绝
+    if (result.permissionDenials && result.permissionDenials.length > 0) {
+      const permissionGranted = await this.handlePermissionDenials(
+        result.permissionDenials,
+        sessionId,
+      );
+
+      if (permissionGranted) {
+        this.cliExecutor!.stopActivityCheck();
+        allowedTools = await this.permissionService!.getAllowedTools(this.config.id, sessionId);
+        this.cliExecutor!.setAllowedTools(allowedTools);
+        this.cliExecutor!.startActivityCheck();
+        const retryResult = await this.cliExecutor!.execute(fullPrompt, workDir, handleEvent);
+        Object.assign(result, retryResult);
+      } else {
+        result.success = false;
+        result.error = 'Permission denied by user';
+      }
+    }
+
+    this.cliExecutor!.stopActivityCheck();
+
+    return await this.handleExecutionResult(
+      result,
+      sessionId,
+      startTime,
+      callbacks,
+    );
+  }
+
+  /**
+   * Handle execution result (common for both adapter and legacy)
+   */
+  private async handleExecutionResult(
+    result: CliExecutionResult,
+    sessionId: string,
+    startTime: number,
+    callbacks?: AgentExecutionCallbacks,
+  ): Promise<CliExecutionResult> {
+    // 从工具结果中提取文件变更和产出
+    const collectorFileChanges = this.toolResultCollector.extractFileChanges();
+    const collectorOutputs = this.toolResultCollector.extractOutputs();
+    const reportedSummary = SummaryParser.parse(result.output || '');
+
+    // 合并生成最终摘要
+    const executionSummary = this.buildExecutionSummary(
+      result,
+      collectorFileChanges,
+      collectorOutputs,
+      reportedSummary,
+      Date.now() - startTime,
+    );
+
+    // 将摘要附加到结果中
+    result.executionSummary = executionSummary;
+
+    // 保存新的 CLI sessionId (用于下次恢复)
+    if (result.sessionId && this.redisService && sessionId) {
+      await this.redisService.setCliSession(sessionId, this.config.id, result.sessionId);
+    }
+
+    // Clear session on failure
+    if (!result.success && this.redisService && sessionId) {
+      await this.redisService.deleteCliSession(sessionId, this.config.id);
+    }
+
+    this.status = 'idle';
+
+    if (result.success) {
+      callbacks?.onComplete?.(sessionId, result);
+    } else {
+      callbacks?.onError?.(sessionId, result.error || 'Execution failed');
+    }
+
+    if (this.wsService) {
+      this.wsService.emitAgentStatus(this.config.id, 'idle', result.success ? 'idle' : 'error');
+    }
+
+    return result;
   }
 
   /**

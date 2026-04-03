@@ -14,6 +14,7 @@ import { WebSocketService } from '../websocket/websocket.service';
 import { AgentRegistry } from './agent-registry.service';
 import { PermissionService } from './permission.service';
 import { RedisService } from '../redis/redis.service';
+import { SkillsDirectoryService } from '../skills/skills-directory.service';
 
 @Injectable()
 export class AgentsService implements OnModuleInit {
@@ -30,6 +31,7 @@ export class AgentsService implements OnModuleInit {
     private readonly rulaiAgent: RulaiAgent,
     private readonly permissionService: PermissionService,
     private readonly redisService: RedisService,
+    private readonly skillsDirectory: SkillsDirectoryService,
     @InjectRepository(Agent)
     private readonly agentRepository: Repository<Agent>,
   ) {}
@@ -85,6 +87,13 @@ export class AgentsService implements OnModuleInit {
     this.setMcpConfigOnAgent(this.shasengAgent);
     this.setMcpConfigOnAgent(this.rulaiAgent);
     this.setMcpConfigOnAgent(this.tangsengAgent);
+
+    // Set SkillsDirectory service on all agents (for skill instruction injection)
+    this.wukongAgent.setSkillsDirectory(this.skillsDirectory);
+    this.bajieAgent.setSkillsDirectory(this.skillsDirectory);
+    this.shasengAgent.setSkillsDirectory(this.skillsDirectory);
+    this.rulaiAgent.setSkillsDirectory(this.skillsDirectory);
+    this.tangsengAgent.setSkillsDirectory(this.skillsDirectory);
 
     this.logger.log('WebSocket service, Permission service, and Redis service set on all agents');
   }

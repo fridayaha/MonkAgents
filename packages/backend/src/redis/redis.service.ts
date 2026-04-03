@@ -309,4 +309,82 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to delete CLI session: ${error}`);
     }
   }
+
+  /**
+   * Add a member to a set
+   */
+  async sadd(key: string, member: string): Promise<void> {
+    if (!this.isAvailable() || !this.client) {
+      return;
+    }
+
+    try {
+      await this.client.sadd(key, member);
+    } catch (error) {
+      this.logger.error(`Failed to add to set: ${error}`);
+    }
+  }
+
+  /**
+   * Remove a member from a set
+   */
+  async srem(key: string, member: string): Promise<void> {
+    if (!this.isAvailable() || !this.client) {
+      return;
+    }
+
+    try {
+      await this.client.srem(key, member);
+    } catch (error) {
+      this.logger.error(`Failed to remove from set: ${error}`);
+    }
+  }
+
+  /**
+   * Get all members of a set
+   */
+  async smembers(key: string): Promise<string[]> {
+    if (!this.isAvailable() || !this.client) {
+      return [];
+    }
+
+    try {
+      return await this.client.smembers(key);
+    } catch (error) {
+      this.logger.error(`Failed to get set members: ${error}`);
+      return [];
+    }
+  }
+
+  /**
+   * Check if a member exists in a set
+   */
+  async sismember(key: string, member: string): Promise<boolean> {
+    if (!this.isAvailable() || !this.client) {
+      return false;
+    }
+
+    try {
+      const result = await this.client.sismember(key, member);
+      return result === 1;
+    } catch (error) {
+      this.logger.error(`Failed to check set membership: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Set expiration on a key
+   */
+  async expire(key: string, ttlSeconds: number): Promise<void> {
+    if (!this.isAvailable() || !this.client) {
+      return;
+    }
+
+    try {
+      await this.client.expire(key, ttlSeconds);
+    } catch (error) {
+      this.logger.error(`Failed to set expiration: ${error}`);
+    }
+  }
 }

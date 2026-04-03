@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { XmlParser } from './helpers/xml-parser';
+import { ConfigService } from '../config/config.service';
 
 /**
  * 任务规划步骤 - JSON格式
@@ -119,7 +120,7 @@ const PLANNING_PROMPT = `你是一个任务规划专家。请分析用户的请�
 export class TaskPlanner {
   private readonly logger = new Logger(TaskPlanner.name);
 
-  constructor() {}
+  constructor(private readonly configService: ConfigService) {}
 
   /**
    * 智能规划任务 - 通过唐僧智能体CLI调用
@@ -137,6 +138,22 @@ export class TaskPlanner {
       }
 
       const planResult = this.parsePlanResult(result);
+
+      // 打印规划结果摘要
+      this.logger.log(`📋 任务规划结果:`);
+      this.logger.log(`  类型: ${planResult.type}`);
+      if (planResult.type === 'task') {
+        this.logger.log(`  步骤数: ${planResult.steps.length}`);
+        planResult.steps.forEach((step, i) => {
+          this.logger.log(`  ${i + 1}. ${step.agentRole}: ${step.taskName}`);
+        });
+      } else if (planResult.type === 'chat' && planResult.chatResponders) {
+        this.logger.log(`  响应者: ${planResult.chatResponders.map(r => r.agentRole).join(', ')}`);
+      }
+      if (planResult.needsHelp) {
+        this.logger.log(`  ⚠️ 需要如来佛祖帮助`);
+      }
+
       return planResult;
     } catch (error) {
       this.logger.error(`智能规划失败: ${error}`);
@@ -191,10 +208,20 @@ export class TaskPlanner {
         actualWorkingDir = process.cwd();
       }
 
-      const proc = spawn(claudeCommand, [
-        '-p',
-        '--output-format', 'text',
-      ], {
+      // 获取唐僧的模型配置
+      const tangsengConfig = this.configService.getAgentConfig('tangseng');
+      const model = tangsengConfig?.model;
+
+      // 构建 CLI 参数
+      const args = ['-p', '--output-format', 'text'];
+
+      // 添加模型参数
+      if (model) {
+        args.push('--model', model);
+        this.logger.debug(`使用模型: ${model}`);
+      }
+
+      const proc = spawn(claudeCommand, args, {
         cwd: actualWorkingDir,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],

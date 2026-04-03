@@ -320,6 +320,11 @@ export class ToolManager {
       timerEl.textContent = this.formatDuration(finalDuration);
     }
 
+    // 如果有结果，添加/更新结果详情
+    if (status === ToolStatus.COMPLETED && metadata.result) {
+      this.updateToolResult(card, metadata.result);
+    }
+
     // 如果有错误，添加错误详情
     if (status === ToolStatus.ERROR && metadata.error) {
       if (!card.querySelector('.tool-call-details')) {
@@ -331,6 +336,72 @@ export class ToolManager {
         `;
         card.insertAdjacentHTML('beforeend', errorDetails);
       }
+    }
+  }
+
+  /**
+   * 更新工具结果展示
+   * @param {Element} card - 工具卡片DOM元素
+   * @param {unknown} result - 工具执行结果
+   */
+  updateToolResult(card, result) {
+    // 检查是否已有详情区域
+    let detailsEl = card.querySelector('.tool-call-details:not(.error)');
+
+    if (!detailsEl) {
+      // 创建新的详情区域
+      const resultDetails = `
+        <details class="tool-call-details result">
+          <summary>输出</summary>
+          <div class="tool-call-result"><pre><code>${this.formatToolResult(result)}</code></pre></div>
+        </details>
+      `;
+      card.insertAdjacentHTML('beforeend', resultDetails);
+    } else {
+      // 更新现有详情区域的结果
+      const resultEl = detailsEl.querySelector('.tool-call-result pre code');
+      if (resultEl) {
+        resultEl.textContent = this.formatToolResult(result);
+      } else {
+        // 将 input 区域转换为 result 区域
+        detailsEl.querySelector('summary').textContent = '输出';
+        const contentDiv = detailsEl.querySelector('.tool-call-input');
+        if (contentDiv) {
+          contentDiv.className = 'tool-call-result';
+          contentDiv.querySelector('pre code').textContent = this.formatToolResult(result);
+        }
+      }
+    }
+  }
+
+  /**
+   * 格式化工具结果用于展示
+   * @param {unknown} result - 工具结果
+   * @returns {string} 格式化后的字符串
+   */
+  formatToolResult(result) {
+    if (result === null || result === undefined) {
+      return '(无输出)';
+    }
+
+    // 如果是字符串，直接展示（可能需要截断）
+    if (typeof result === 'string') {
+      // 如果字符串太长，截断展示
+      if (result.length > 2000) {
+        return result.substring(0, 2000) + '\n... (输出过长，已截断)';
+      }
+      return this.escapeHtml(result);
+    }
+
+    // 如果是对象，尝试格式化
+    try {
+      const jsonStr = JSON.stringify(result, null, 2);
+      if (jsonStr.length > 2000) {
+        return this.escapeHtml(jsonStr.substring(0, 2000)) + '\n... (输出过长，已截断)';
+      }
+      return this.escapeHtml(jsonStr);
+    } catch {
+      return this.escapeHtml(String(result));
     }
   }
 

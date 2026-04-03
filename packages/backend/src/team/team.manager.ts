@@ -7,10 +7,13 @@ import {
   CreateTeamOptions,
   TeamStatusEvent,
   AgentRole,
+  AgentHeartbeat,
 } from './interfaces';
 import { TaskListService } from './task-list.service';
 import { MailboxService } from './mailbox.service';
 import { TeammateAgent } from './teammate.agent';
+import { HeartbeatService } from './heartbeat.service';
+import { GoalService } from './goal.service';
 
 /**
  * Agent configuration for team creation
@@ -54,6 +57,12 @@ export class TeamManager implements OnModuleDestroy {
   /** Mailbox service */
   protected mailboxService: MailboxService | null = null;
 
+  /** Heartbeat service */
+  private heartbeatService: HeartbeatService | null = null;
+
+  /** Goal service */
+  private goalService: GoalService | null = null;
+
   /** WebSocket service for broadcasting */
   private wsService: any = null;
 
@@ -81,10 +90,30 @@ export class TeamManager implements OnModuleDestroy {
   }
 
   /**
+   * Set additional services (heartbeat, goal)
+   */
+  setAdditionalServices(
+    heartbeatService: HeartbeatService,
+    goalService: GoalService,
+  ): void {
+    this.heartbeatService = heartbeatService;
+    this.goalService = goalService;
+
+    // Register timeout callback for heartbeat
+    this.heartbeatService.onTimeout((heartbeat) => this.handleAgentTimeout(heartbeat));
+  }
+
+  /**
    * Register a teammate agent
    */
   registerTeammate(agent: TeammateAgent): void {
     this.teammates.set(agent.getId(), agent);
+
+    // Inject additional services if available
+    if (this.heartbeatService && this.goalService) {
+      agent.setAdditionalServices(this.heartbeatService, this.goalService);
+    }
+
     this.logger.log(`Registered teammate: ${agent.getName()} (${agent.getId()})`);
   }
 
@@ -290,6 +319,42 @@ export class TeamManager implements OnModuleDestroy {
     };
 
     this.wsService.emitToSession(team.sessionId, 'team_status', event);
+  }
+
+  /**
+   * Handle agent timeout from heartbeat service
+   */
+  private async handleAgentTimeout(heartbeat: AgentHeartbeat): Promise<void> {
+    this.logger.warn(
+      `Agent ${heartbeat.agentId} timed out in team ${heartbeat.teamId} (task: ${heartbeat.currentTaskId || 'none'})`
+    );
+
+    // Release any locks held by the timed-out agent
+    if (heartbeat.currentTaskId && this.taskListService) {
+      await this.taskListService.releaseTaskLock(heartbeat.currentTaskId);
+
+      // Reset the task status to pending so another agent can claim it
+      const task = this.taskListService.getTask(heartbeat.currentTaskId);
+      if (task && task.status === 'in_progress') {
+        task.status = 'pending';
+        task.owner = undefined;
+        task.claimedAt = undefined;
+      }
+    }
+
+    // Update member status to offline
+    this.updateMemberStatus(heartbeat.teamId, heartbeat.agentId, 'offline');
+
+    // Broadcast timeout event
+    if (this.wsService) {
+      this.wsService.emitToSession(heartbeat.teamId, 'agent_timeout', {
+        agentId: heartbeat.agentId,
+        teamId: heartbeat.teamId,
+        currentTaskId: heartbeat.currentTaskId,
+        lastHeartbeat: heartbeat.timestamp,
+        timestamp: new Date(),
+      });
+    }
   }
 
   /**
